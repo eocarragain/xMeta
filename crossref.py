@@ -29,7 +29,7 @@ class genericJob():
             self.issue_doi = self.get_valid_doi(issue_series['doi'])
             self.issue_number = str(issue_series['issue_number'])
             self.issue_url = issue_series['issue_url']        
-            self.issue_title = issue_series['journal_title']
+            self.issue_title = issue_series['issue_title']
             self.issue_editors_keys = issue_series['editors']
             self.publication_date = issue_series['publication_date']
             self.batch_id = self.issue_doi
@@ -195,7 +195,6 @@ class CrossRefJob(genericJob):
             return contributors
 
         for idx, val in enumerate(keys):
-            print(val)
             try:
                 contributor_df = self.contributors_df.loc[self.contributors_df['id'] == val]
                 contributor_df = contributor_df.reset_index().fillna('')
@@ -297,7 +296,6 @@ class CrossRefJob(genericJob):
 
 
     def get_citations(self, art_doi):
-        #print(self.citations_df.columns)
         citations = {}
         art_citations_df = self.citations_df.loc[self.citations_df['Article DOI '] == art_doi]
         if len(art_citations_df.index) == 0:
@@ -331,7 +329,7 @@ class CrossRefJob(genericJob):
     def get_article(self, raw_row):
         row = raw_row.fillna('')
         titles = {
-            "title": row["title"]
+            "title": row["title"].strip()
         }
         if row["subtitle"]:
             titles["subtitle"] = row["subtitle"]
@@ -346,7 +344,6 @@ class CrossRefJob(genericJob):
         publication_date = self.get_pub_date(self.publication_date)
         pub_date_str = self.get_pud_date_string(self.publication_date)
         doi = self.get_valid_doi(row["doi"])
-        print("Processing: {}".format(doi))
         url = row["url"]
 
         try: 
@@ -386,7 +383,6 @@ class CrossRefJob(genericJob):
         if article[article_id]["abstract_en"]["p"] == "":
             del article[article_id]["abstract_en"]
 
-        #print(article)
         return article
 
     def get_articles(self):
@@ -412,9 +408,6 @@ class CrossRefJob(genericJob):
         myDict["doi_batch"]["head"] = self.get_head()
         myDict["doi_batch"]["body"] = self.get_body()
 
-        #print(myDict)
-        #print("~~~~~~~~~~~~#################~~~~~~~~~~~~~~~~~~~~~")
-        #print(dict2xml(myDict))
         output_path = self.path.replace(".xlsx", ".xml")
         f = open(output_path, "w", encoding='utf-8')
         f.write(dict2xml(myDict))
@@ -423,6 +416,16 @@ class CrossRefJob(genericJob):
 
 class DspaceJob(genericJob):
 
+    def get_initials(self, all_given_names):
+        given_names_array = all_given_names.split(" ")
+        initials = ""
+        for idx, given_name in enumerate(given_names_array):
+            if idx == 0:
+                initials = "{}.".format(given_name[0])
+            else:
+                initials = "{} {}.".format(initials, given_name[0])
+        return initials
+
     def get_article_citation(self, authors, year, title, start_page, end_page, doi):
         #self.journal_title
         #self.volume_number
@@ -430,8 +433,8 @@ class DspaceJob(genericJob):
         no_of_auths = len(authors)
         authors_str = ""
         for idx, author in enumerate(authors):
-            initial = "{}.".format(author["given_name"][0])
-            name = "{}, {}".format(author["surname"], initial)
+            initials = self.get_initials(author["given_name"])
+            name = "{}, {}".format(author["surname"], initials)
             if idx == 0:
                 authors_str = name
             elif idx == (no_of_auths - 1):
@@ -465,7 +468,6 @@ class DspaceJob(genericJob):
             return contributors
 
         for val in keys:
-            print(val)
             try:
                 contributor_df = self.contributors_df.loc[self.contributors_df['id'] == val]
                 contributor_df = contributor_df.reset_index().fillna('')
@@ -494,11 +496,8 @@ class DspaceJob(genericJob):
         return contributors 
  
     def get_contributors(self, lookup):
-        print(lookup)
         contributors_array = self.get_contributors_as_dicts(lookup)
-        print("here")
         contributors = ""
-        print(contributors_array)
         for idx, contributor in enumerate(contributors_array):
             author_str = "{}, {}".format(contributor["surname"], contributor["given_name"])
             if idx == 0:
@@ -521,10 +520,12 @@ class DspaceJob(genericJob):
 
     def get_article(self, raw_row):
         row = raw_row.fillna('')
-        title = row["title"]
+        title = row["title"].strip()
 
         if row["subtitle"]:
-            title = "{}: {}".format(title, row["subtitle"])      
+            title = "{}: {}".format(title, row["subtitle"]) 
+
+        title = title.replace("&", "and")     
 
         doi = self.get_valid_doi(row["doi"])
     
@@ -568,6 +569,12 @@ class DspaceJob(genericJob):
             doi
         )
 
+        #add trailing fullstops to abstracts
+        abstract = row["abstract"].strip()
+        if len(abstract) > 0:
+            if abstract[-1:].isalpha():
+                abstract = "{}.".format(abstract)
+
         row_dict = {
                 'id': '+',
                 'dc.identifier.doi': doi,
@@ -582,7 +589,7 @@ class DspaceJob(genericJob):
                 'dc.internal.authorcontactother[en]': first_author_str,
                 'dc.internal.IRISemailaddress[en]': internal_email,
                 'dc.type[en]': item_type,
-                'dc.description.abstract[en]': row["abstract"],
+                'dc.description.abstract[en]': abstract,
                 'dc.identifier.journaltitle[en]': self.journal_title,
                 'dc.publisher[en]': self.journal_publisher,
                 'dc.identifier.issn[]': self.journal_issn,
