@@ -25,11 +25,14 @@ class genericJob():
         self.reference_distribution_opts = journal_series['reference_distribution_opts']
         self.license_url = journal_series['license_url']
         try:
-            issue_series = xl.parse('Issue').loc[0]
+            issue_series = xl.parse('Issue').loc[0].fillna('')
             self.issue_doi = self.get_valid_doi(issue_series['doi'])
             self.issue_number = str(issue_series['issue_number'])
-            self.issue_url = issue_series['issue_url']        
-            self.issue_title = issue_series['issue_title']
+            self.issue_url = issue_series['issue_url']
+            if issue_series['issue_title']: 
+                self.issue_title = issue_series['issue_title']
+            else:
+                self.issue_title = ""
             self.issue_editors_keys = issue_series['editors']
             self.publication_date = issue_series['publication_date']
             self.batch_id = self.issue_doi
@@ -45,8 +48,11 @@ class genericJob():
             self.cora_collection = "" 
             self.has_issue = False
         try:
-            volume_series = xl.parse('Volume').loc[0]
-            self.volume_doi = self.get_valid_doi(volume_series['doi'])
+            volume_series = xl.parse('Volume').loc[0].fillna('')
+            if volume_series['doi']:
+                self.volume_doi = self.get_valid_doi(volume_series['doi'])
+            else:
+                self.volume_doi = ""
             self.volume_number = str(volume_series['volume_number'])
             self.volume_url = volume_series['volume_url']
             if self.volume_number:        
@@ -173,19 +179,49 @@ class CrossRefJob(genericJob):
         }
         return journal
 
+    def get_journal_volume(self):
+        volume_metadata = {}
+        if self.has_volume == False:
+            return volume_metadata
+        
+        if self.volume_number.strip() != "":
+            volume_metadata["volume"] = self.volume_number
+
+        if self.volume_doi and self.volume_url:
+            volume_metadata["doi_data"] = {
+                "doi": self.volume_doi,
+                "resource": self.volume_url
+            }
+
+        return volume_metadata
+
+
     def get_journal_issue(self):
         journal_issue = {
             "contributors": self.get_contributors(self.issue_editors_keys, "editor"),
-            "titles": {
-                "title": self.issue_title
-            },
+            "titles": {},
             "publication_date": self.get_pub_date(self.publication_date),
+            "journal_volume": {},
             "issue": self.issue_number,
             "doi_data": {
                 "doi": self.issue_doi,
                 "resource": self.issue_url
             }
         }
+
+        if len(self.issue_title.strip()) > 0:
+            journal_issue["titles"] = {
+                "title": self.issue_title
+            }
+        else:
+            del journal_issue["titles"]
+        
+        volume_metadata = self.get_journal_volume()
+        if len(volume_metadata.keys()) > 0:
+            journal_issue["journal_volume"] = self.get_journal_volume()
+        else:
+            del journal_issue["journal_volume"]
+
         return journal_issue
       
     def get_contributors(self, lookup, role):
@@ -408,9 +444,12 @@ class CrossRefJob(genericJob):
         myDict["doi_batch"]["head"] = self.get_head()
         myDict["doi_batch"]["body"] = self.get_body()
 
+        
+
         output_path = self.path.replace(".xlsx", ".xml")
         f = open(output_path, "w", encoding='utf-8')
         f.write(dict2xml(myDict))
+        #f.write(str(myDict))
         f.close()
 
 
