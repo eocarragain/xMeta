@@ -37,7 +37,8 @@ class genericJob():
             self.publication_date = issue_series['publication_date']
             self.batch_id = self.issue_doi
             self.rights_statement = issue_series['rights_statement']
-            self.cora_collection = issue_series['collection'] 
+            self.cora_collection = issue_series['collection']
+            self.issue_languages = issue_series['languages']
             self.has_issue = True
         except:
             print("WARNING: No issue metadata found, publication date will be set to today")
@@ -45,7 +46,8 @@ class genericJob():
             self.publication_date = pd.Timestamp(now)
             self.batch_id = "{}-{}".format(self.journal_doi, now.strftime("%Y-%m-%d"))
             self.rights_statement = "© the Author(s)"
-            self.cora_collection = "" 
+            self.cora_collection = ""
+            self.issue_languages = "en" 
             self.has_issue = False
         try:
             volume_series = xl.parse('Volume').loc[0].fillna('')
@@ -585,6 +587,7 @@ class DspaceJob(genericJob):
         subjects = ""
         if row["keywords"]:
             subjects = row["keywords"].replace("|| ", "||").replace(" ||", "||")
+        
 
         item_type = row["type"]
         peer_reviewed = row["peer_reviewed"]
@@ -644,6 +647,15 @@ class DspaceJob(genericJob):
                 'dc.rights.uri': self.license_url,
                 'dc.description.provenance[en]': "Batch upload from published version"
         }
+
+        languages = self.issue_languages.split("||")
+        for language in languages:
+            language = language.strip()
+            if language != "en":
+                column_heading = "keywords_{}".format(language)
+                if column_heading in row:
+                    keywords_lang = row[column_heading].replace("|| ", "||").replace(" ||", "||")
+                    row_dict["dc.subject[{}]".format(language)] = keywords_lang
 
         return row_dict
 

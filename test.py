@@ -2,6 +2,7 @@ from xmler import dict2xml
 import crossref 
 
 #job = crossref.CrossRefJob("Kopie von Metadata_Scenario_13_1_28_06 - Editable.xlsx")
+#input_file = "scenario_13_1.xlsx"
 input_file = "Metadata_Alphaville_Issue17.xlsx"
 crossref_job = crossref.CrossRefJob(input_file)
 crossref_job.generate()
