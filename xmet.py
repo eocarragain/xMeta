@@ -591,11 +591,19 @@ class DspaceJob(genericJob):
 
         item_type = row["type"]
         peer_reviewed = row["peer_reviewed"]
-        if item_type.lower().strip() == "article":
-            if peer_reviewed.lower().strip() == "peer reviewed":
+        type_norm = item_type.lower().strip()
+        pr_norm = peer_reviewed.lower().strip()
+        if type_norm in ["article", "foreward", "interview"]:
+            if pr_norm == "peer reviewed":
                 item_type = "Article (peer-reviewed)"
             else:
                 item_type = "Article (non peer-reviewed)"
+        elif type_norm  in ["film review", "book review"]:
+                item_type = "Review"    
+        elif type_norm  in ["conference presentation", "conference report"]:
+            item_type = "Conference item"
+        else:
+            item_type = "Article (non peer-reviewed)"
         
         pub_year = self.get_pub_date(self.publication_date)
 
@@ -668,7 +676,7 @@ class DspaceJob(genericJob):
             fieldnames = list(test_article.keys())
             writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
             writer.writeheader()
-            for idx, row in self.article_df.iterrows():
+            for idx, row in self.article_df[::-1].iterrows():
                 article = self.get_article(row) 
                 writer.writerow(article)
 
