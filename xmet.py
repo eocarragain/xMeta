@@ -125,13 +125,13 @@ class genericJob():
         else:
             raise Exception("Invalid ORCID: {}".format(orcid))
 
-    def get_pud_date_string(self, timestamp):
+    def get_pub_date_string(self, timestamp):
         pydate = timestamp.to_pydatetime()
         date_str = pydate.strftime("%Y-%m-%d")
         return date_str
 
     def get_pub_date_parts(self, date):
-        date_str = self.get_pud_date_string(date)
+        date_str = self.get_pub_date_string(date)
         date_parts_array = date_str.split("-")
         date_parts = {
             "year": date_parts_array[0],
@@ -381,7 +381,7 @@ class CrossRefJob(genericJob):
             contributors.update(editors)
 
         publication_date = self.get_pub_date(self.publication_date)
-        pub_date_str = self.get_pud_date_string(self.publication_date)
+        pub_date_str = self.get_pub_date_string(self.publication_date)
         doi = self.get_valid_doi(row["doi"])
         url = row["url"]
 
