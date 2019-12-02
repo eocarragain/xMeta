@@ -335,9 +335,10 @@ class CrossRefJob(genericJob):
 
     def get_citations(self, art_doi):
         citations = {}
-        art_citations_df = self.citations_df.loc[self.citations_df['Article DOI '] == art_doi]
+        article_doi_series = self.citations_df['Article DOI '].str.strip()
+        art_citations_df = self.citations_df.loc[article_doi_series == art_doi]
         if len(art_citations_df.index) == 0:
-            art_citations_df = self.citations_df.loc[self.citations_df['Article DOI '] == self.get_doi_uri(art_doi)]
+            art_citations_df = self.citations_df.loc[article_doi_series == self.get_doi_uri(art_doi)]
 
         if len(art_citations_df.index) == 0:
             #todo proper logging
