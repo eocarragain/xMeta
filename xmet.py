@@ -239,7 +239,7 @@ class CrossRefJob(genericJob):
                 contributor_series = contributor_df.loc[0]
             except:
                 #todo proper error handling
-                raise Exception("########### CONTRIB NOT FOUND #######################")
+                raise Exception("########### CONTRIB NOT FOUND: {0} #######################".format(val))
 
 
             if role == "author" and idx == 0:
@@ -516,7 +516,7 @@ class DspaceJob(genericJob):
                 contributor_series = contributor_df.loc[0]
             except:
                 #todo proper error handling
-                raise Exception("########### CONTRIB NOT FOUND #######################")
+                raise Exception("########### CONTRIB NOT FOUND: {0} #######################".format(val))
 
             primary_affiliation = ""
             if contributor_series['primary_affiliation']:
@@ -599,7 +599,7 @@ class DspaceJob(genericJob):
                 item_type = "Article (peer-reviewed)"
             else:
                 item_type = "Article (non peer-reviewed)"
-        elif type_norm  in ["film review", "book review"]:
+        elif type_norm  in ["review", "film review", "book review"]:
                 item_type = "Review"    
         elif type_norm  in ["conference presentation", "conference report"]:
             item_type = "Conference item"
