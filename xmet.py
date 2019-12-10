@@ -15,7 +15,7 @@ class genericJob():
         self.article_df = xl.parse('Articles')
         self.contributors_df = xl.parse('Contributors')
         self.citations_df = xl.parse('Citations')
-        journal_series = xl.parse('Journal').loc[0]
+        journal_series = xl.parse('Journal').loc[0].fillna('')
         self.journal_title = journal_series['journal_title']
         self.journal_short_title = journal_series['short_title']
         self.journal_issn = journal_series['journal_issn']
@@ -642,6 +642,7 @@ class DspaceJob(genericJob):
                 'dc.type[en]': item_type,
                 'dc.description.abstract[en]': abstract,
                 'dc.identifier.journaltitle[en]': self.journal_title,
+                'dc.identifier.journalabbrev[en]': self.journal_short_title,
                 'dc.publisher[en]': self.journal_publisher,
                 'dc.identifier.issn[]': self.journal_issn,
                 'dc.date.issued[]': pub_year,
