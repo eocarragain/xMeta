@@ -684,3 +684,276 @@ class DspaceJob(genericJob):
 
 
 
+class OjsJob(genericJob):
+
+<issues xmlns="http://pkp.sfu.ca" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://pkp.sfu.ca native.xsd">
+    def get_root(self):
+        root = {
+            "issues": {
+                "@attrs": {
+                    "version": self.schema_version,
+                    "xmlns": "http://pkp.sfu.ca",
+                    "xmlns:xsi": "http://www.w3.org/2001/XMLSchema-instance",
+                    "xsi:schemaLocation": "http://pkp.sfu.ca native.xsd"
+                }
+            }
+        }
+        return root
+    
+    def get_contributors(self, lookup, role):
+        contributors = {}
+        keys = lookup.replace(" ", "").split("||")
+        if len(keys) == 0:
+            return contributors
+
+        for idx, val in enumerate(keys):
+            try:
+                contributor_df = self.contributors_df.loc[self.contributors_df['id'] == val]
+                contributor_df = contributor_df.reset_index().fillna('')
+                contributor_series = contributor_df.loc[0]
+            except:
+                #todo proper error handling
+                raise Exception("########### CONTRIB NOT FOUND: {0} #######################".format(val))
+
+
+            if role == "author" and idx == 0:
+                sequence = "first"
+            else:
+                sequence = "additional"
+
+
+            person_name = {
+                    "@attrs": {
+                        "include_in_browse": "true",
+                        #user_group_ref"
+                        #seq
+                        #id
+                    },
+                    "@name" : "author",
+                    "givenname": contributor_series['given_name'],
+                    "surname": contributor_series['surname']
+                }
+
+            if contributor_series['email']:
+                person_name.update({"email": contributor_series['email']})
+                        
+            if contributor_series['orcid']:
+                orcid = self.get_valid_orcid(contributor_series['orcid'])
+                person_name.update({"ORCID": orcid})  
+                    
+
+            contributors.update({"person_name-{}-{}-{}".format(idx, val, role): person_name})
+        return contributors
+
+    def get_pub_date(self, date, media_type="online"):
+        date_parts = self.get_pub_date_parts(date)
+        pub_date = {
+            "@attrs": {
+                "media_type": media_type
+            },
+            "month": date_parts["month"],
+            "day": date_parts["day"],
+            "year": date_parts["year"]
+        }
+        return pub_date
+
+
+    def get_citation(self, raw_row, art_doi, idx):
+        row = raw_row.fillna('')
+        doi_suffix = self.get_doi_suffix(art_doi)
+        citation_key = "{}-{}".format(doi_suffix, idx)
+
+        if row["DOI for reference"] and self.valid_doi(row["DOI for reference"]):
+            cite_block = {"doi": self.get_valid_doi(row["DOI for reference"])}
+        elif row["Complete reference"]:
+            cite_block = {"unstructured_citation": row["Complete reference"]}
+        else:
+            raise Exception("no valid citation")
+
+        cite = {
+            "@attrs":{
+                "key": citation_key
+            },
+            "@name": "citation",
+        }
+        cite.update(cite_block)
+
+        citation = {
+            "citation-{}".format(citation_key): cite
+        }
+        return citation
+
+
+    def get_citations(self, art_doi):
+        citations = {}
+        article_doi_series = self.citations_df['Article DOI '].str.strip()
+        art_citations_df = self.citations_df.loc[article_doi_series == art_doi]
+        if len(art_citations_df.index) == 0:
+            art_citations_df = self.citations_df.loc[article_doi_series == self.get_doi_uri(art_doi)]
+
+        if len(art_citations_df.index) == 0:
+            #todo proper logging
+            print("### WARNING: no citations found for {}".format(art_doi))
+            return citations
+
+        art_citations_df = art_citations_df.reset_index().fillna('')    
+
+        for idx, row in art_citations_df.iterrows():
+            citation = self.get_citation(row, art_doi, idx + 1) 
+            citations.update(citation)
+        
+        return citations
+
+
+    def get_article(self, raw_row):
+        row = raw_row.fillna('')
+        titles = {
+            "title": row["title"].strip()
+        }
+        if row["subtitle"]:
+            titles["subtitle"] = row["subtitle"]
+       
+        if row["authors"]: 
+            contributors = self.get_contributors(row["authors"], "author")
+        
+        if row["editors"]:
+            editors = self.get_contributors(row["editors"], "editor")
+            contributors.update(editors)
+
+        publication_date = self.get_pub_date(self.publication_date)
+        pub_date_str = self.get_pub_date_string(self.publication_date)
+        doi = self.get_valid_doi(row["doi"])
+        url = row["url"]
+
+        try: 
+            language = row["language"]
+        except:
+            language = "en"
+
+        article_id = "journal_article-{}".format(doi)
+        article =  {
+                "@attrs": {
+                    "xmlns:xsi": "http://www.w3.org/2001/XMLSchema-instance",
+                    "date_submitted": "",
+                    "status": "",
+                    "submission_progress":"",
+                    "current_publication_id":"",
+                    "stage":"production"
+                },
+                "@name": "article",
+                "id":{
+                    "@attrs": {"type":"internal", "advice":"ignore"},
+                    "value": article_id
+                },
+                # submission file
+                "publication": {
+                    "@attrs": {
+                        "xmlns:xsi": "http://www.w3.org/2001/XMLSchema-instance",
+                        "locale":"en_US",
+                        "version": "1",
+                        #"status": "",
+                        #"primary_contact_id"
+                        #"url_path"
+                        #"seq"
+                        #"section_ref"
+                        #"access_status"
+                        "xsi:schemaLocation": "http://pkp.sfu.ca native.xsd"
+                    },
+                }
+                #id
+                "title" : row["title"].strip(),
+                #prefix
+                #"subtitle":""
+                "abstract": self.get_abstract(row["abstract"], language),
+                #copyrightHolder
+                "copyrightYear": self.get_pub_year(self.publication_date),
+                #keywords
+                "authors": self.get_contributors(row["authors"], "author")
+                #article_galley
+                "pages" "{0}-{1}".format(row["first_page"], row["last_page"])   
+                #covers
+                "program": self.get_license(pub_date_str),
+                "doi_data": {
+                    "doi": doi,
+                    "resource": url 
+                },
+                "citation_list": self.get_citations(doi)
+            } 
+        }
+
+        if row["subtitle"]:
+            article["publication"]["subtitle"] = row["subtitle"]
+
+        if row["abstract"]:
+            article["publication"]["abstract"] = row["abstract"]
+        
+        return article
+
+    def get_articles(self):
+        articles = {
+            "@attrs": {
+                "xmlns:xsi": "http://www.w3.org/2001/XMLSchema-instance",
+                "xsi:schemaLocation": "http://pkp.sfu.ca native.xsd"
+            }
+        }
+        for idx, row in self.article_df.iterrows():
+            article = self.get_article(row) 
+            articles.update(article)
+        return articles
+ 
+
+    def get_pub_year(self, date):
+            date_parts = self.get_pub_date_parts(date)
+            return date_parts["year"]
+
+    def get_journal_issue(self):
+        journal_issue = {
+            "@attrs": {
+                "xmlns:xsi": "http://www.w3.org/2001/XMLSchema-instance",
+                "published":"0",
+                "current": "0",
+                "access_status": "1",
+                "url_path"="test-issue"
+            },
+            "id":{
+                "@attrs": {"type":"internal", "advice":"ignore"},
+                "value": "1"
+            },
+            "description": "",
+            "issue_identification": {
+                "number": self.issue_number,
+                "year": self.get_pub_year(self.publication_date),
+            },
+            "last_modified": date.today().strftime("%Y-%m-%d"),
+            #sections
+            #covers
+            #issue_galleys
+
+        if len(self.issue_title.strip()) > 0:
+            journal_issue["issue_identification"]["title"] = self.issue_title
+
+        
+        volume_metadata = self.get_journal_volume()
+        if len(volume_metadata.keys()) > 0:
+            journal_issue["issue_identification"]["volume"] = self.get_journal_volume()
+
+        return journal_issue
+
+    def generate(self):
+        myDict = self.get_root()
+        
+        myDict["issues"]["issue"] = self.get_journal_issue()
+        myDict["issues"]["articles"] = self.get_articles()
+
+
+        
+
+        output_path = self.path.replace(".xlsx", ".xml")
+        f = open(output_path, "w", encoding='utf-8')
+        f.write(dict2xml(myDict))
+        #f.write(str(myDict))
+        f.close()
+
+
+
+
