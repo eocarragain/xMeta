@@ -14,3 +14,6 @@ if __name__ == '__main__':
     
     dspace_job = xmet.DspaceJob(input_file)
     dspace_job.generate()
+
+    ojs_job = xmet.OjsJob(input_file)
+    ojs_job.generate()

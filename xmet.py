@@ -3,6 +3,8 @@ from xmler import dict2xml
 import pandas as pd 
 import re
 import csv
+import roman
+import scenario
 
 class genericJob():
     def __init__(self, path):
@@ -140,6 +142,22 @@ class genericJob():
         }
         return date_parts
 
+    def get_journal_volume(self):
+        volume_metadata = {}
+        if self.has_volume == False:
+            return volume_metadata
+        
+        if self.volume_number.strip() != "":
+            volume_metadata["volume"] = self.volume_number
+
+        if self.volume_doi and self.volume_url:
+            volume_metadata["doi_data"] = {
+                "doi": self.volume_doi,
+                "resource": self.volume_url
+            }
+
+        return volume_metadata
+
 class CrossRefJob(genericJob):
     def get_root(self):
         root = {
@@ -180,23 +198,6 @@ class CrossRefJob(genericJob):
             }
         }
         return journal
-
-    def get_journal_volume(self):
-        volume_metadata = {}
-        if self.has_volume == False:
-            return volume_metadata
-        
-        if self.volume_number.strip() != "":
-            volume_metadata["volume"] = self.volume_number
-
-        if self.volume_doi and self.volume_url:
-            volume_metadata["doi_data"] = {
-                "doi": self.volume_doi,
-                "resource": self.volume_url
-            }
-
-        return volume_metadata
-
 
     def get_journal_issue(self):
         journal_issue = {
@@ -685,20 +686,6 @@ class DspaceJob(genericJob):
 
 
 class OjsJob(genericJob):
-
-<issues xmlns="http://pkp.sfu.ca" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://pkp.sfu.ca native.xsd">
-    def get_root(self):
-        root = {
-            "issues": {
-                "@attrs": {
-                    "version": self.schema_version,
-                    "xmlns": "http://pkp.sfu.ca",
-                    "xmlns:xsi": "http://www.w3.org/2001/XMLSchema-instance",
-                    "xsi:schemaLocation": "http://pkp.sfu.ca native.xsd"
-                }
-            }
-        }
-        return root
     
     def get_contributors(self, lookup, role):
         contributors = {}
@@ -725,21 +712,26 @@ class OjsJob(genericJob):
             person_name = {
                     "@attrs": {
                         "include_in_browse": "true",
-                        #user_group_ref"
-                        #seq
-                        #id
+                        "user_group_ref": "Author",
+                        "seq": "1",
+                        "id": "1"
                     },
                     "@name" : "author",
                     "givenname": contributor_series['given_name'],
-                    "surname": contributor_series['surname']
+                    "familyname": contributor_series['surname'],
+                    "affiliation": "",
+                    "email": ""
                 }
 
-            if contributor_series['email']:
-                person_name.update({"email": contributor_series['email']})
+            if contributor_series['primary_affiliation']:
+                person_name["affiliation"] = contributor_series['primary_affiliation']
+
+            if contributor_series['email_for_ucc_authors']:
+                person_name["email"] = contributor_series['email_for_ucc_authors']
                         
             if contributor_series['orcid']:
                 orcid = self.get_valid_orcid(contributor_series['orcid'])
-                person_name.update({"ORCID": orcid})  
+                person_name.update({"orcid": orcid})  
                     
 
             contributors.update({"person_name-{}-{}-{}".format(idx, val, role): person_name})
@@ -760,23 +752,14 @@ class OjsJob(genericJob):
 
     def get_citation(self, raw_row, art_doi, idx):
         row = raw_row.fillna('')
+        
         doi_suffix = self.get_doi_suffix(art_doi)
         citation_key = "{}-{}".format(doi_suffix, idx)
 
-        if row["DOI for reference"] and self.valid_doi(row["DOI for reference"]):
-            cite_block = {"doi": self.get_valid_doi(row["DOI for reference"])}
-        elif row["Complete reference"]:
-            cite_block = {"unstructured_citation": row["Complete reference"]}
-        else:
-            raise Exception("no valid citation")
-
         cite = {
-            "@attrs":{
-                "key": citation_key
-            },
+            "@value": row["Complete reference"],
             "@name": "citation",
         }
-        cite.update(cite_block)
 
         citation = {
             "citation-{}".format(citation_key): cite
@@ -801,7 +784,7 @@ class OjsJob(genericJob):
         for idx, row in art_citations_df.iterrows():
             citation = self.get_citation(row, art_doi, idx + 1) 
             citations.update(citation)
-        
+        print(citations)
         return citations
 
 
@@ -832,20 +815,22 @@ class OjsJob(genericJob):
 
         article_id = "journal_article-{}".format(doi)
         article =  {
+            article_id: {
                 "@attrs": {
                     "xmlns:xsi": "http://www.w3.org/2001/XMLSchema-instance",
-                    "date_submitted": "",
-                    "status": "",
-                    "submission_progress":"",
-                    "current_publication_id":"",
+                    #"date_submitted": "",
+                    #"status": "",
+                    #"submission_progress":"",
+                    #"current_publication_id":"",
                     "stage":"production"
                 },
                 "@name": "article",
                 "id":{
                     "@attrs": {"type":"internal", "advice":"ignore"},
-                    "value": article_id
+                    "@value": article_id
                 },
-                # submission file
+                "pdf_file": {},
+                "html_file": {},
                 "publication": {
                     "@attrs": {
                         "xmlns:xsi": "http://www.w3.org/2001/XMLSchema-instance",
@@ -855,39 +840,132 @@ class OjsJob(genericJob):
                         #"primary_contact_id"
                         #"url_path"
                         #"seq"
-                        #"section_ref"
+                        "section_ref": "ART",
                         #"access_status"
                         "xsi:schemaLocation": "http://pkp.sfu.ca native.xsd"
                     },
+                
+                    #id
+                    "title" : row["title"].strip(),
+                    #prefix
+                    "subtitle":"",
+                    "abstract": row["abstract"],
+                    #rights
+                    #licenseUrl
+                    #copyrightHolder
+                    "copyrightYear": self.get_pub_year(self.publication_date),
+                    "keywords": {},
+                    "authors": self.get_contributors(row["authors"], "author"),
+                    "pdf_galley": {},
+                    "html_galley": {},
+                    "pages": "{0}-{1}".format(row["first_page"], row["last_page"]),   
+                    #covers
+                    #"issue_identification": self.get_issue_identification(),
+                    "citations": self.get_citations(row['doi'])
                 }
-                #id
-                "title" : row["title"].strip(),
-                #prefix
-                #"subtitle":""
-                "abstract": self.get_abstract(row["abstract"], language),
-                #copyrightHolder
-                "copyrightYear": self.get_pub_year(self.publication_date),
-                #keywords
-                "authors": self.get_contributors(row["authors"], "author")
-                #article_galley
-                "pages" "{0}-{1}".format(row["first_page"], row["last_page"])   
-                #covers
-                "program": self.get_license(pub_date_str),
-                "doi_data": {
-                    "doi": doi,
-                    "resource": url 
-                },
-                "citation_list": self.get_citations(doi)
             } 
         }
 
         if row["subtitle"]:
-            article["publication"]["subtitle"] = row["subtitle"]
+            article[article_id]["publication"]["subtitle"] = row["subtitle"]
 
-        if row["abstract"]:
-            article["publication"]["abstract"] = row["abstract"]
+        if row["keywords"]:
+            keywords = self.get_keywords(row, "keywords")
+        else:
+            languages = self.issue_languages.split("||")
+            for language in languages:
+                language = language.strip()
+                if language != "en":
+                    column_heading = "keywords_{}".format(language)
+                    keywords = self.get_keywords(row, column_heading)
         
+        if len(keywords) > 0 :
+            article[article_id]["publication"]["keywords"] = keywords
+        else:
+            del article[article_id]["publication"]["keywords"]
+
+        scen = scenario.parseScenario(row["url"])
+        pdf_b64 = scen.get_encoded_pdf()
+        pdf_id = "1" # todo
+        article[article_id]["pdf_file"] = self.get_submission_file("pdf", pdf_id, pdf_b64)
+        article[article_id]["publication"]["pdf_galley"] = self.get_galley("pdf", pdf_id)
+        html_b64 = scen.get_encoded_html()
+        html_id = "2" # todo
+        article[article_id]["html_file"] = self.get_submission_file("html", html_id, html_b64)
+        article[article_id]["publication"]["html_galley"] = self.get_galley("html", html_id)
+
         return article
+
+    def get_submission_file(self, type, id, enc_data):
+        filename = "{0}.{0}".format(type, type)
+        if type == "html":
+            filetype = "text/html"
+        else:
+            filetype = "application/pdf"
+
+        sub = {
+            "@attrs": {
+                    "xmlns:xsi": "http://www.w3.org/2001/XMLSchema-instance",
+                    "stage":"public",
+                    "id": id,
+                    "xsi:schemaLocation": "http://pkp.sfu.ca native.xsd"
+            },
+            "@name": "submission_file",
+            "revision": {
+                "@attrs": {
+                    "number": "1",
+                    "genre":"Article Text",
+                    "filename": filename,
+                    "filetype": filetype
+                },
+                "name": "admin, {0}".format(filename),
+                "embed": {
+                    "@attrs": {
+                        "encoding": "base64",
+                    },    
+                    "@value": enc_data #"dummy_encode_########################"#
+                }
+            }
+        }
+        return sub
+
+    def get_galley(self, type, id):
+        if type == "html":
+            name = "HTML"
+            seq = "1"
+        else:
+            name = "PDF"
+            seq = "0"
+
+        galley = {
+            "@attrs": {
+                    "xmlns:xsi": "http://www.w3.org/2001/XMLSchema-instance",
+                    "approved":"true",
+                    "xsi:schemaLocation": "http://pkp.sfu.ca native.xsd"
+            },
+            "@name": "article_galley",
+            "name": name,
+            "seq": seq,
+            "submission_file_ref": {
+                "@attrs": {
+                    "id": id,
+                    "revision":"1"
+                },
+            } 
+        }
+        return galley
+
+
+    def get_keywords(self, raw_row, column_heading):
+        row = raw_row.fillna('')
+        kwords = row[column_heading].replace("|| ", "||").replace(" ||", "||").split("||")
+        keywords = {}
+        kword_count = 0
+        for kword in kwords:
+            keywords["kword{0}".format(kword_count)] = {"@name": "keyword", "@value":kword.strip()}
+        return keywords
+            
+
 
     def get_articles(self):
         articles = {
@@ -906,49 +984,100 @@ class OjsJob(genericJob):
             date_parts = self.get_pub_date_parts(date)
             return date_parts["year"]
 
-    def get_journal_issue(self):
-        journal_issue = {
-            "@attrs": {
-                "xmlns:xsi": "http://www.w3.org/2001/XMLSchema-instance",
-                "published":"0",
-                "current": "0",
-                "access_status": "1",
-                "url_path"="test-issue"
-            },
-            "id":{
-                "@attrs": {"type":"internal", "advice":"ignore"},
-                "value": "1"
-            },
-            "description": "",
-            "issue_identification": {
+
+    def is_int(self, val):
+        try: 
+            int(val)
+            return True
+        except ValueError:
+            return False   
+
+    def get_valid_vol_number(self, vol):
+        if self.is_int(vol):
+            return vol
+        elif self.is_int(roman.fromRoman(vol)):
+            return str(roman.fromRoman(vol))
+        else:
+            return "0"
+
+
+    def get_issue_identification(self):
+        issue_identification = {
+                "volume": "",
                 "number": self.issue_number,
                 "year": self.get_pub_year(self.publication_date),
-            },
-            "last_modified": date.today().strftime("%Y-%m-%d"),
-            #sections
-            #covers
-            #issue_galleys
+                "title": ""
+            }
 
-        if len(self.issue_title.strip()) > 0:
-            journal_issue["issue_identification"]["title"] = self.issue_title
 
-        
         volume_metadata = self.get_journal_volume()
         if len(volume_metadata.keys()) > 0:
-            journal_issue["issue_identification"]["volume"] = self.get_journal_volume()
+            vol = self.get_valid_vol_number(self.get_journal_volume()["volume"])
+            if vol != "0":
+                issue_identification["volume"] = vol
+            else:
+                del issue_identification["volume"]
+        else:
+            del issue_identification["volume"]
+
+        if len(self.issue_title.strip()) > 0:
+            issue_identification["title"] = self.issue_title
+        else:
+            del issue_identification["title"]
+        
+        return issue_identification
+
+    def get_journal_issue(self):
+        journal_issue = {
+            "issue": {
+                "@attrs": {
+                    "xmlns": "http://pkp.sfu.ca",
+                    "xmlns:xsi": "http://www.w3.org/2001/XMLSchema-instance",
+                    "published":"1",
+                    "current": "0",
+                    "access_status": "1",
+                    "url_path":"",
+                    "xsi:schemaLocation": "http://pkp.sfu.ca native.xsd"
+                },
+                "@name": "issue",
+                "id":{
+                    "@attrs": {"type":"internal", "advice":"ignore"},
+                    "@value": "1"
+                },
+                "description": "",
+                "issue_identification": self.get_issue_identification(), 
+                "last_modified": datetime.datetime.now().strftime("%Y-%m-%d"),
+                #sections
+                #covers
+                #issue_galleys
+                "articles": self.get_articles()
+            }
+        }
 
         return journal_issue
 
+    def get_root(self):
+        root = {
+            "issues": {
+                "@attrs": {
+                    "xmlns": "http://pkp.sfu.ca",
+                    "xmlns:xsi": "http://www.w3.org/2001/XMLSchema-instance",
+                    "xsi:schemaLocation": "http://pkp.sfu.ca native.xsd"
+                }
+            }
+        }
+        return root
+
     def generate(self):
-        myDict = self.get_root()
+        #myDict = self.get_root()
+        myDict = self.get_journal_issue()
+        #print(myDict)
+        #myDict["issues"].update(self.get_journal_issue())
         
-        myDict["issues"]["issue"] = self.get_journal_issue()
-        myDict["issues"]["articles"] = self.get_articles()
+        #myDict["issues"]["issue"] = self.get_journal_issue()
+        #myDict["articles"] = self.get_articles()
 
-
-        
-
-        output_path = self.path.replace(".xlsx", ".xml")
+        output_path = self.path.replace(".xlsx", "_ojs.xml")
         f = open(output_path, "w", encoding='utf-8')
         f.write(dict2xml(myDict))
         #f.write(str(myDict))
