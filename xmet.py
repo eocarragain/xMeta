@@ -688,7 +688,12 @@ class DspaceJob(genericJob):
 class OjsJob(genericJob):
     
     def get_contributors(self, lookup, role):
-        contributors = {}
+        contributors = {
+            "@attrs": {
+                "xmlns:xsi": "http://www.w3.org/2001/XMLSchema-instance",
+                "xsi:schemaLocation": "http://pkp.sfu.ca native.xsd"
+            },
+        }
         keys = lookup.replace(" ", "").split("||")
         if len(keys) == 0:
             return contributors
@@ -720,7 +725,9 @@ class OjsJob(genericJob):
                     "givenname": contributor_series['given_name'],
                     "familyname": contributor_series['surname'],
                     "affiliation": "",
-                    "email": ""
+                    "email": "",
+                    "orcid": "",
+                    "biography": ""
                 }
 
             if contributor_series['primary_affiliation']:
@@ -731,7 +738,7 @@ class OjsJob(genericJob):
                         
             if contributor_series['orcid']:
                 orcid = self.get_valid_orcid(contributor_series['orcid'])
-                person_name.update({"orcid": orcid})  
+                person_name["orcid"] = orcid  
                     
 
             contributors.update({"person_name-{}-{}-{}".format(idx, val, role): person_name})
@@ -784,7 +791,7 @@ class OjsJob(genericJob):
         for idx, row in art_citations_df.iterrows():
             citation = self.get_citation(row, art_doi, idx + 1) 
             citations.update(citation)
-        print(citations)
+        #print(citations)
         return citations
 
 
@@ -814,20 +821,23 @@ class OjsJob(genericJob):
             language = "en"
 
         article_id = "journal_article-{}".format(doi)
+        article_no = re.sub(r"\D", "", doi.split("/")[1])
         article =  {
             article_id: {
                 "@attrs": {
+                    #"xmlns": "http://pkp.sfu.ca",
                     "xmlns:xsi": "http://www.w3.org/2001/XMLSchema-instance",
-                    #"date_submitted": "",
-                    #"status": "",
-                    #"submission_progress":"",
-                    #"current_publication_id":"",
-                    "stage":"production"
+                    "date_submitted": datetime.datetime.now().strftime("%Y-%m-%d"), 
+                    "status": "3",
+                    "submission_progress":"0",
+                    "current_publication_id": article_no,
+                    "stage":"production",
+                    "xsi:schemaLocation": "http://pkp.sfu.ca native.xsd"
                 },
                 "@name": "article",
                 "id":{
                     "@attrs": {"type":"internal", "advice":"ignore"},
-                    "@value": article_id
+                    "@value": article_no
                 },
                 "pdf_file": {},
                 "html_file": {},
@@ -836,16 +846,18 @@ class OjsJob(genericJob):
                         "xmlns:xsi": "http://www.w3.org/2001/XMLSchema-instance",
                         "locale":"en_US",
                         "version": "1",
-                        #"status": "",
+                        "status": "3",
                         #"primary_contact_id"
                         #"url_path"
-                        #"seq"
+                        "seq":"0",
                         "section_ref": "ART",
                         #"access_status"
                         "xsi:schemaLocation": "http://pkp.sfu.ca native.xsd"
                     },
-                
-                    #id
+                    "id":{
+                        "@attrs": {"type":"internal", "advice":"ignore"},
+                        "@value": article_no
+                    },
                     "title" : row["title"].strip(),
                     #prefix
                     "subtitle":"",
@@ -858,10 +870,10 @@ class OjsJob(genericJob):
                     "authors": self.get_contributors(row["authors"], "author"),
                     "pdf_galley": {},
                     "html_galley": {},
+                    #"issue_identification": self.get_issue_identification(),
                     "pages": "{0}-{1}".format(row["first_page"], row["last_page"]),   
                     #covers
-                    #"issue_identification": self.get_issue_identification(),
-                    "citations": self.get_citations(row['doi'])
+                    #"citations": self.get_citations(row['doi'])
                 }
             } 
         }
@@ -886,14 +898,14 @@ class OjsJob(genericJob):
 
         scen = scenario.parseScenario(row["url"])
         pdf_b64 = scen.get_encoded_pdf()
-        pdf_id = "1" # todo
+        pdf_id = str(int(article_no) + 100) # todo
         article[article_id]["pdf_file"] = self.get_submission_file("pdf", pdf_id, pdf_b64)
         article[article_id]["publication"]["pdf_galley"] = self.get_galley("pdf", pdf_id)
         html_b64 = scen.get_encoded_html()
-        html_id = "2" # todo
+        html_id = str(int(article_no) + 200) # todo
         article[article_id]["html_file"] = self.get_submission_file("html", html_id, html_b64)
         article[article_id]["publication"]["html_galley"] = self.get_galley("html", html_id)
-
+        #self.write_art(article)
         return article
 
     def get_submission_file(self, type, id, enc_data):
@@ -906,7 +918,7 @@ class OjsJob(genericJob):
         sub = {
             "@attrs": {
                     "xmlns:xsi": "http://www.w3.org/2001/XMLSchema-instance",
-                    "stage":"public",
+                    "stage": "submission",
                     "id": id,
                     "xsi:schemaLocation": "http://pkp.sfu.ca native.xsd"
             },
@@ -916,14 +928,18 @@ class OjsJob(genericJob):
                     "number": "1",
                     "genre":"Article Text",
                     "filename": filename,
-                    "filetype": filetype
+                    "filetype": filetype,
+                    "viewable": "true",
+                    "date_uploaded": datetime.datetime.now().strftime("%Y-%m-%d"), 
+                    "date_modified": datetime.datetime.now().strftime("%Y-%m-%d"), 
+                    "uploader": "admin"
                 },
                 "name": "admin, {0}".format(filename),
                 "embed": {
                     "@attrs": {
                         "encoding": "base64",
                     },    
-                    "@value": enc_data #"dummy_encode_########################"#
+                    "@value": enc_data #"YW0NZW5kb2JqDXN0YXJ0eHJlZg0KMTE2DQolJUVPRg0K"#
                 }
             }
         }
@@ -1045,12 +1061,39 @@ class OjsJob(genericJob):
                     "@value": "1"
                 },
                 "description": "",
-                "issue_identification": self.get_issue_identification(), 
+                "issue_identification": self.get_issue_identification(),
+                "date_published": datetime.datetime.now().strftime("%Y-%m-%d"), 
                 "last_modified": datetime.datetime.now().strftime("%Y-%m-%d"),
-                #sections
+                "sections": {
+                    "section": {
+                        "@attrs": {
+                            "ref": "ART",
+                            "seq": "1",
+                            "editor_restricted":"0",
+                            "meta_indexed": "1",
+                            "meta_reviewed": "1",
+                            "abstracts_not_required": "0",
+                            "hide_title": "0",
+                            "hide_author": "0",
+                            "abstract_word_count": "500"
+                        },          
+                        "id":{
+                            "@attrs": {"type":"internal", "advice":"ignore"},
+                            "@value": "1",
+                        },
+                        "abbrev": "ART",
+                        "policy": "Articles policy",
+                        "title": "Articles"
+                    },
+                },
                 #covers
-                #issue_galleys
-                "articles": self.get_articles()
+                "issue_galleys": {
+                    "@attrs": {
+                        "xmlns:xsi": "http://www.w3.org/2001/XMLSchema-instance",
+                        "xsi:schemaLocation": "http://pkp.sfu.ca native.xsd"
+                    }
+                },
+                "articles": self.get_articles()    
             }
         }
 
@@ -1080,6 +1123,13 @@ class OjsJob(genericJob):
         output_path = self.path.replace(".xlsx", "_ojs.xml")
         f = open(output_path, "w", encoding='utf-8')
         f.write(dict2xml(myDict))
+        #f.write(str(myDict))
+        f.close()
+
+    def write_art(self, article):
+        output_path = self.path.replace(".xlsx", "_ojs_art.xml")
+        f = open(output_path, "w", encoding='utf-8')
+        f.write(dict2xml(article))
         #f.write(str(myDict))
         f.close()
 
