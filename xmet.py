@@ -906,6 +906,7 @@ class OjsJob(genericJob):
         article[article_id]["html_file"] = self.get_submission_file("html", html_id, html_b64)
         article[article_id]["publication"]["html_galley"] = self.get_galley("html", html_id)
         #self.write_art(article)
+        #print("returning article")
         return article
 
     def get_submission_file(self, type, id, enc_data):

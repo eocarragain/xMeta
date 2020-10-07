@@ -2,28 +2,230 @@ from bs4 import BeautifulSoup
 import requests
 import base64
 import mimetypes
+import roman
+
+class parseScenarioIssue():
+    def __init__(self, issue_url):
+        print(issue_url)
+        self.issue_url = issue_url.strip()   
+        req = requests.get(self.issue_url)
+        self.issue_page = req.text
+        self.soup = BeautifulSoup(self.issue_page, 'html.parser')
+
+    def get_issn(self):
+        return "1649-8526"
+
+    def get_volume(self):
+        vol = self.soup.select("span.volume")[0].get_text()
+        return vol
+
+    #todo dry this out. duplicate of xmet.py
+    def is_int(self, val):
+        try: 
+            int(val)
+            return True
+        except ValueError:
+            return False 
+    
+    #todo dry this out. duplicate of xmet.py
+    def get_volume_as_int(self, vol):
+        if self.is_int(vol):
+            return vol
+        elif self.is_int(roman.fromRoman(vol)):
+            return str(roman.fromRoman(vol))
+        else:
+            return "0"
+
+    def get_issue(self):
+        return self.get_issue_year()["issue"]
+
+    def get_year(self):
+        return self.get_issue_year()["year"]
+
+    def get_editors(self):
+        return ["Manfred Schewe", "Susanne Even"]
+
+    def get_issue_year(self):
+        issue_year = {}
+        joined = self.soup.select("span.issue")[0].get_text()
+        joined = joined.replace("—", "-")
+        parts = joined.split("-")
+        issue_year["issue"] = parts[0].strip()
+        issue_year["year"] = parts[1].strip()
+
+        return issue_year
+
+    def get_article_urls(self):
+        articles = {}
+        article_links = self.soup.select("div.toctitle > span.doctitle a")
+        for article_link in article_links:
+            title = article_link.get_text()
+            link = article_link['href']
+            articles[link] = title
+            print(link)
+
+        return articles
+
+            #if exclude_vorwort and "Vorwort" in title:
+             #   continue
+
+    def get_issue_galley(self):
+        whole_issue = self.soup.find_all("a", string="Whole Issue")[0]
+        return whole_issue["href"]
+
 
 class parseScenario():
     def __init__(self, url):
         print(url)
-        if "Privas" in url:
-            self.page_url = "http://research.ucc.ie/scenario/2020/01/EVEN/01/en"
-        else:
-            self.page_url = url     
-        self.page = requests.get(self.page_url).text
+        self.page_url = url.strip()   
+        req = requests.get(self.page_url)
+        print(req.status_code)
+        self.page = self.get_page(req)
         self.soup = BeautifulSoup(self.page, 'html.parser')
+        self.meta_tags = self.get_meta_tags()
+
+    def get_status_code(self):
+        return self.status_code
+
+    def get_page(self, req):
+        if req.status_code == 200:
+            self.status_code = 200
+            return req.text
+        
+        # try to fetch from wayback
+        wb_urls = [
+            self.get_wayback_api_url(self.page_url), 
+            self.get_wayback_api_url(self.page_url.replace("research.ucc.ie", "publish.ucc.ie"))
+            ]
+        for wb_url in wb_urls:
+            wb_api = requests.get(wb_url)
+            wb_api_resp = wb_api.json()
+            print(wb_api_resp)
+            if wb_api_resp != {}:
+                wb_url = wb_api_resp["archived_snapshots"]["closest"]["url"]
+                wb_page_req = requests.get(wb_url)
+                if wb_page_req.status_code == 200:
+                    self.status_code = 200
+                    return wb_page_req.text
+        
+        self.status_code = 500
+        #raise Exception("Failed to load html for {0}".format(self.page_url))
+        return req.text
+
+    def get_wayback_api_url(self, scenario_url):
+        return "http://archive.org/wayback/available?url={}".format(scenario_url)
+
 
     def get_pdf(self):
         #form pdf
         form_data = {}
+        f = self.soup.select("form")
+        #print(self.page)
         form = self.soup.select("div.print > form")[0]
         for child in form.descendants:
             if "name" in child.attrs:
                 name = child["name"]
                 value = child["value"]
                 form_data[name] = value
-        response = requests.post(form["action"],data=form_data)
+        response = requests.post("http://minerva2.ucc.ie/cgi-bin/uncgi/make.pdf", data=form_data)
+        if response.status_code != 200:
+            raise Exception("Failed to load pdf for {0}".format(self.page_url))
         return response.content
+
+    def get_meta_tags(self):
+        meta_tags = {}
+        tags = self.soup.select('head > meta')
+        #print(tags)
+        for tag in tags:
+            if "name" in tag.attrs:
+                name = tag["name"]
+                content = tag["content"]
+                meta_tags[name] = content
+
+        return meta_tags
+
+    def get_meta_tag(self, tag):
+        if tag in self.meta_tags:
+            return self.meta_tags[tag].strip()
+        else:
+            return ""
+
+    # convenience method to parse 
+    def get_authors(self):
+        #known patterns
+        #John Doe/Jane Doe/Jenny Doe
+        #John Doe & Jane Doe
+        #John Doe and Jane Doe
+        #John Doe und Jane Doe
+        #John Doe; Jane Doe; Jenny Doe
+        #John Doe, Jane Doe, Jenny Doe
+        #John Doe, Jane Doe & Jenny Doe
+        #John Doe, Jane Doe and Jenny Doe
+        authors = []
+        author = self.get_meta_tag("author")
+        parts = []
+        if "/" in author:
+            parts = author.split("/")
+        elif ";" in author:
+            parts = author.split(";")
+        elif "," in author:
+            parts = author.split(",")
+        else:
+            parts = [author]
+
+        for part in parts:
+            part = part.replace(" and ", "&")
+            part = part.replace("&amp;", "&")
+            part = part.replace("und", "&")
+            part_parts = part.split("&")
+            authors = authors + part_parts
+
+        authors = map(str.strip, authors) 
+        return authors
+
+    def get_abstract(self):
+        el = self.soup.select('div.abstract > p')
+        if len(el) > 0:
+            abstract = el[0].get_text()
+            abstract = " ".join(abstract.split()).strip()
+        else:
+            abstract = ""
+        return abstract
+
+    def get_language(self):
+        lang = url.split("/")[-1]
+        if lang in ['en', 'de']:
+            return lang
+        else:
+            return 'en'
+
+    def get_citations(self):
+        content_box = self.soup.select("div.content")[0]
+        citations = []
+        heading = content_box.find_all(['a', 'div', 'p'], string="Bibliography")
+        if len(heading) > 0:
+            print(heading)
+            first_entry = heading[0].find_next("p")
+            print(first_entry)
+            citations.append(first_entry.get_text())
+            # others = first_entry.find_next_siblings('p')
+            others = first_entry.find_next_siblings()
+            for other in others:
+                if other.name == 'p':
+                    text = other.get_text()
+                    text = " ".join(text.split()).strip()
+                    print(text)
+                    if "[SCBibliograpySection]" in text:
+                        continue
+                    if 'appendix' in text.lower():
+                        break
+                    citations.append(text)
+                else:
+                    break
+        return citations
+
+    #keywords
+    #type
 
     def get_encoded_pdf(self):
         return base64.b64encode(self.get_pdf()).decode('utf-8')
@@ -66,6 +268,9 @@ class parseScenario():
                 img_url = img["src"]
             else: 
                 img_url ="{0}/{1}".format(self.page_url.rsplit("/", 1)[0], img["src"])
+            # horrible hack for broken image
+            if img_url == "http://research.ucc.ie/journals/scenario/2019/02/PrivasBreaute/10/en/media/image6.png":
+                continue
             image_data = requests.get(img_url).content
             mimetype = mimetypes.guess_type(img_url)[0]
             img['src'] = "data:%s;base64,%s" % (mimetype, base64.b64encode(image_data).decode('utf-8'))
