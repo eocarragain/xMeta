@@ -367,6 +367,7 @@ class CrossRefJob(genericJob):
         return el
 
     def get_article(self, raw_row):
+        contributors = {}
         row = raw_row.fillna('')
         titles = {
             "title": row["title"].strip()
@@ -819,7 +820,8 @@ class OjsJob(genericJob):
             language = row["language"]
         except:
             language = "en"
-
+        
+        # todo article_seq = 
         article_id = "journal_article-{}".format(doi)
         article_no = re.sub(r"\D", "", doi.split("/")[1])
         article =  {

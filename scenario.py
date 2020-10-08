@@ -134,24 +134,51 @@ class parseScenario():
 
     def get_meta_tags(self):
         meta_tags = {}
+        meta_tags["citation_author"] = []
         tags = self.soup.select('head > meta')
         #print(tags)
         for tag in tags:
             if "name" in tag.attrs:
                 name = tag["name"]
-                content = tag["content"]
-                meta_tags[name] = content
+                content = tag["content"].strip()
+                if tag["name"] == "citation_author":
+                    if content == "/":
+                        continue
+                    meta_tags[name].append(content)
+                    print(meta_tags[name])
+                else:               
+                    meta_tags[name] = content
 
         return meta_tags
 
     def get_meta_tag(self, tag):
         if tag in self.meta_tags:
-            return self.meta_tags[tag].strip()
+            return self.meta_tags[tag]
         else:
-            return ""
+            if tag == "citation_author":
+                return []
+            else:
+                return ""
+
+    def get_authors(self):
+        authors = []
+        meta_authors = self.get_meta_tag("citation_author")
+        print(meta_authors)
+        for author in meta_authors:
+            print(author)
+            if "," in author:
+                parts = author.split(",", 1)
+                author = "{} {}".format(parts[1], parts[0]).strip()
+
+            authors.append(author)
+        
+        authors = list(map(str.strip, authors)) 
+        authors = list(filter(None, authors))
+        return authors
+
 
     # convenience method to parse 
-    def get_authors(self):
+    def get_authors_from_body(self):
         #known patterns
         #John Doe/Jane Doe/Jenny Doe
         #John Doe & Jane Doe
@@ -162,7 +189,12 @@ class parseScenario():
         #John Doe, Jane Doe & Jenny Doe
         #John Doe, Jane Doe and Jenny Doe
         authors = []
-        author = self.get_meta_tag("author")
+        #author =   todo soup selector for any element with class docauthor
+        #print("~~~~~~~~~{}".format(author))
+        if author in bad_names:
+            parts = author.split(",")
+            author = "{} {}".format(parts[1], parts[0]).strip()
+
         parts = []
         if "/" in author:
             parts = author.split("/")
@@ -180,7 +212,8 @@ class parseScenario():
             part_parts = part.split("&")
             authors = authors + part_parts
 
-        authors = map(str.strip, authors) 
+        authors = list(map(str.strip, authors)) 
+        authors = list(filter(None, authors))
         return authors
 
     def get_abstract(self):
@@ -204,9 +237,9 @@ class parseScenario():
         citations = []
         heading = content_box.find_all(['a', 'div', 'p'], string="Bibliography")
         if len(heading) > 0:
-            print(heading)
+            #print(heading)
             first_entry = heading[0].find_next("p")
-            print(first_entry)
+            #print(first_entry)
             citations.append(first_entry.get_text())
             # others = first_entry.find_next_siblings('p')
             others = first_entry.find_next_siblings()
@@ -214,7 +247,7 @@ class parseScenario():
                 if other.name == 'p':
                     text = other.get_text()
                     text = " ".join(text.split()).strip()
-                    print(text)
+                    #print(text)
                     if "[SCBibliograpySection]" in text:
                         continue
                     if 'appendix' in text.lower():
