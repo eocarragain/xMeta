@@ -160,7 +160,7 @@ if __name__ == '__main__':
                 language,
                 art.get_meta_tag("citation_title"),
                 '',
-                get_contibs(art.get_authors()), #todo
+                get_contibs(art.get_authors('Manfred Schewe')), #todo
                 get_contibs(issue.get_editors()), #todo
                 get_full_date(art.get_meta_tag("citation_publication_date")),
                 article_url,

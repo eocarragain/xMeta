@@ -229,6 +229,8 @@ class CrossRefJob(genericJob):
       
     def get_contributors(self, lookup, role):
         contributors = {}
+        if lookup == "":
+            return contributors
         keys = lookup.replace(" ", "").split("||")
         if len(keys) == 0:
             return contributors
@@ -507,6 +509,8 @@ class DspaceJob(genericJob):
 
     def get_contributors_as_dicts(self, lookup):
         contributors = []
+        if lookup == '':
+            return contributors
         keys = lookup.replace(" ", "").split("||")
         if len(keys) == 0:
             return contributors
@@ -689,6 +693,8 @@ class DspaceJob(genericJob):
 class OjsJob(genericJob):
     
     def get_contributors(self, lookup, role):
+        if lookup == '':
+            return {}
         contributors = {
             "@attrs": {
                 "xmlns:xsi": "http://www.w3.org/2001/XMLSchema-instance",
@@ -798,6 +804,7 @@ class OjsJob(genericJob):
 
     def get_article(self, raw_row):
         row = raw_row.fillna('')
+        contributors = {}
         titles = {
             "title": row["title"].strip()
         }
@@ -883,13 +890,14 @@ class OjsJob(genericJob):
         if row["subtitle"]:
             article[article_id]["publication"]["subtitle"] = row["subtitle"]
 
+        keywords = {}
         if row["keywords"]:
             keywords = self.get_keywords(row, "keywords")
         else:
             languages = self.issue_languages.split("||")
             for language in languages:
                 language = language.strip()
-                if language != "en":
+                if language != "en" and language != "":
                     column_heading = "keywords_{}".format(language)
                     keywords = self.get_keywords(row, column_heading)
         

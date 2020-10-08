@@ -106,6 +106,7 @@ class parseScenario():
                 wb_page_req = requests.get(wb_url)
                 if wb_page_req.status_code == 200:
                     self.status_code = 200
+                    self.page_url = wb_url
                     return wb_page_req.text
         
         self.status_code = 500
@@ -160,7 +161,7 @@ class parseScenario():
             else:
                 return ""
 
-    def get_authors(self):
+    def get_authors(self, fallback_author=''):
         authors = []
         meta_authors = self.get_meta_tag("citation_author")
         print(meta_authors)
@@ -174,11 +175,14 @@ class parseScenario():
         
         authors = list(map(str.strip, authors)) 
         authors = list(filter(None, authors))
+        if len(authors) == 0:
+            if fallback_author != '':
+                authors.append(fallback_author)
         return authors
 
 
     # convenience method to parse 
-    def get_authors_from_body(self):
+    def get_authors_from_body(self, fallback_author=''):
         #known patterns
         #John Doe/Jane Doe/Jenny Doe
         #John Doe & Jane Doe
@@ -214,6 +218,9 @@ class parseScenario():
 
         authors = list(map(str.strip, authors)) 
         authors = list(filter(None, authors))
+        if len(authors) == 0:
+            if fallback != '':
+                authors.append(fallback_author)
         return authors
 
     def get_abstract(self):
@@ -267,7 +274,9 @@ class parseScenario():
         return base64.b64encode(self.get_html().encode('ascii')).decode('utf-8')
 
     def get_html(self):
-        doi = self.soup.select('span[class="doi"] > a')[0].get_text()
+        doi = self.soup.select('span[class="doi"] > a')
+        if len(doi) > 0:
+            doi = doi[0].get_text()
         vol = self.soup.select('span[class="volume"]')[0].get_text()
         issue = self.soup.select('span[class="issue"]')[0].get_text()
         year = self.soup.select('span[class="date"]')[0].get_text().replace("Year", "").strip()
@@ -297,14 +306,21 @@ class parseScenario():
                 img.replace_with("[Back]")
                 continue    
             
-            if "http" in img["src"]:
+            if img["src"].startswith("http"):
                 img_url = img["src"]
-            else: 
+            elif img["src"].startswith("/web/"):
+                img_url ="{0}/{1}".format("https://web.archive.org", img["src"]) 
+            else:
                 img_url ="{0}/{1}".format(self.page_url.rsplit("/", 1)[0], img["src"])
+            print("########################## {0}".format(img_url))
             # horrible hack for broken image
             if img_url == "http://research.ucc.ie/journals/scenario/2019/02/PrivasBreaute/10/en/media/image6.png":
                 continue
-            image_data = requests.get(img_url).content
+            image_req = requests.get(img_url)
+            if image_req.status_code != 200:
+                raise Exception("Unable to download image {0} for page {1}".format(img_url, self.page_url))
+            image_data = image_req.content
+
             mimetype = mimetypes.guess_type(img_url)[0]
             img['src'] = "data:%s;base64,%s" % (mimetype, base64.b64encode(image_data).decode('utf-8'))
         #print(content_box)
