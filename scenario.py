@@ -11,6 +11,7 @@ class parseScenarioIssue():
         req = requests.get(self.issue_url)
         self.issue_page = req.text
         self.soup = BeautifulSoup(self.issue_page, 'html.parser')
+        self.issue_cover_path = self.get_issue_cover_path()
 
     def get_issn(self):
         return "1649-8526"
@@ -50,39 +51,160 @@ class parseScenarioIssue():
         joined = self.soup.select("span.issue")[0].get_text()
         joined = joined.replace("—", "-")
         parts = joined.split("-")
-        issue_year["issue"] = parts[0].strip()
+        issue_year["issue"] = parts[0].lower().replace("issue", "").strip()
         issue_year["year"] = parts[1].strip()
 
         return issue_year
 
-    def get_article_urls(self):
+    def get_articles_from_toc(self):
+        articles = {}
+        article_rows = self.soup.select("div.metadata tr")
+        for row in article_rows:
+            if len(row.select("th")) > 0:
+                continue
+            # Can't rely on classnames here as they vary across issues
+            # Just workd with col poisitions    
+            cols = row.select("td")
+            section = cols[0].get_text().strip()
+            title_link = cols[1].select("span.doctitle a")[0]
+            title = title_link.get_text().strip()
+            if "about the authors" in title.lower():
+                section = "biodata"
+            elif "biodata" in title.lower():
+                section = "biodata"
+            elif title.lower() in ["Foreword", "Vorwort"]:
+                section = "foreward"                
+            url_html = title_link['href']
+            if url_html.startswith("http"):
+                url_html = url_html 
+            else:
+                url_html = "{0}/{1}".format(self.issue_url.rsplit("/", 1)[0], url_html)
+            media_links = []
+            media_anchors = cols[2].select("span.media a")
+            for anchor in media_anchors:
+                media_links.append(anchor['href'])
+            authors = cols[3].get_text().strip()
+            page_link = cols[4].select("a")[0]
+            start_page = page_link.get_text().strip()
+            url_pdf = page_link['href']
+            article = {
+                "section": section,
+                "title": title,
+                "url": url_html.strip(),
+                "media": media_links,
+                "authors": authors,
+                "start_page": start_page,
+                "pdf": url_pdf
+            }
+
+            articles[url_html] = article
+
+        return articles
+
+    def get_article_urls_all_languages(self):
+        return self.get_articles_from_toc().keys()
+
+
+    def get_unique_article_urls(self):
+        all_urls = self.get_article_urls_all_languages()
+        url_dict = {}
+        unique_urls = []
+        for url in all_urls:
+            lang = url.split("/")[-1]
+            id = url.split("/")[-2]
+            if id in url_dict:
+                if lang == 'en' and url_dict[id].endswith("de"):
+                    url_dict[id] = url
+            else:
+                url_dict[id] = url
+        return url_dict.values()
+
+    def get_article_urls_direct(self):
+        # deprecated. use get_article_urls_all_languages and get_unique_article_urls
         articles = {}
         article_links = self.soup.select("div.toctitle > span.doctitle a")
         for article_link in article_links:
             title = article_link.get_text()
             link = article_link['href']
             articles[link] = title
-            print(link)
 
         return articles
 
-            #if exclude_vorwort and "Vorwort" in title:
-             #   continue
+    def get_issue_galley_path(self):
+        whole_issue_link = self.soup.find_all("a", string="Whole Issue")[0]["href"]
+        if whole_issue_link.startswith("http"):
+            return whole_issue_link 
+        else:
+            whole_issue_link ="{0}/{1}".format(self.issue_url.rsplit("/", 1)[0], whole_issue_link)
+            return whole_issue_link
 
     def get_issue_galley(self):
-        whole_issue = self.soup.find_all("a", string="Whole Issue")[0]
-        return whole_issue["href"]
+        req = requests.get(self.get_issue_galley_path())
+        if req.status_code != 200:
+            raise Exception("Failed to load issue galley for {0}".format(self.page_url))
+        return req.content        
+
+    def get_encoded_issue_galley(self):
+        b64 = base64.b64encode(self.get_issue_galley()).decode('utf-8')
+        return b64
+
+    def get_issue_cover_paths(self):
+        paths = []
+        year = self.get_year()
+        num = str(int(self.get_issue()))
+        paths.append("https://www.ucc.ie/en/media/electronicjournals/scenario/journal/{0}issue{1}-150x215.jpg".format(year, num))
+        paths.append("https://www.ucc.ie/en/media/electronicjournals/scenario/journal/{0}Issue{1}-150x215.jpg".format(year, num))
+        paths.append("https://www.ucc.ie/en/media/electronicjournals/scenario/journal/{0}Issue{1}psd-150x215.jpg".format(year, num))
+        paths.append("https://www.ucc.ie/en/media/electronicjournals/scenario/journal/{0}issue{1}psd-150x215.jpg".format(year, num))
+        return paths
+
+    def get_issue_cover_path(self):
+        paths = self.get_issue_cover_paths()
+        for path in paths:
+            req = requests.get(path)
+            if req.status_code == 200:
+                return path
+        return ""
+
+    def get_issue_cover_filename(self):
+        return self.get_issue_cover_path().split("/")[-1]
+
+    def get_encoded_issue_cover(self):
+        b64 = base64.b64encode(self.get_issue_cover()).decode('utf-8')
+        return b64
+
+    def get_issue_cover(self):
+        req = requests.get(self.issue_cover_path)
+        if req.status_code != 200:
+            raise Exception("Failed to load cover image for {0}".format(self.page_url))
+        return req.content
+
+            
 
 
 class parseScenario():
     def __init__(self, url):
-        print(url)
+        print("##### {}".format(url))
         self.page_url = url.strip()   
         req = requests.get(self.page_url)
         print(req.status_code)
         self.page = self.get_page(req)
         self.soup = BeautifulSoup(self.page, 'html.parser')
         self.meta_tags = self.get_meta_tags()
+        self.issue_url = self.get_issue_url()
+        print(self.issue_url)
+        self.issue = parseScenarioIssue(self.issue_url)
+
+    def get_issue_url(self):
+        url = self.page_url.rsplit("/", 3)[0]
+        url = self.strip_wayback(url)
+        return url
+
+    def strip_wayback(self, url):
+        url = url
+        if "web.archive.org" in url:
+            url = url.split("/", 5)[5]
+        return url
 
     def get_status_code(self):
         return self.status_code
@@ -101,7 +223,7 @@ class parseScenario():
             wb_api = requests.get(wb_url)
             wb_api_resp = wb_api.json()
             print(wb_api_resp)
-            if wb_api_resp != {}:
+            if wb_api_resp["archived_snapshots"] != {}:
                 wb_url = wb_api_resp["archived_snapshots"]["closest"]["url"]
                 wb_page_req = requests.get(wb_url)
                 if wb_page_req.status_code == 200:
@@ -161,7 +283,21 @@ class parseScenario():
             else:
                 return ""
 
-    def get_authors(self, fallback_author=''):
+    def get_toc_elements(self):
+        #print(self.issue.get_articles_from_toc())
+        url = self.strip_wayback(self.page_url)
+        toc = self.issue.get_articles_from_toc()[url]
+        return toc
+
+    def get_start_page(self):
+        toc = self.get_toc_elements()
+        return toc["start_page"]
+
+    def get_section(self):
+        section = self.get_toc_elements()["section"]
+        return section
+
+    def get_authors_from_meta(self, fallback_author=''):
         authors = []
         meta_authors = self.get_meta_tag("citation_author")
         print(meta_authors)
@@ -180,9 +316,8 @@ class parseScenario():
                 authors.append(fallback_author)
         return authors
 
-
     # convenience method to parse 
-    def get_authors_from_body(self, fallback_author=''):
+    def get_authors(self, fallback_author=''):
         #known patterns
         #John Doe/Jane Doe/Jenny Doe
         #John Doe & Jane Doe
@@ -192,12 +327,14 @@ class parseScenario():
         #John Doe, Jane Doe, Jenny Doe
         #John Doe, Jane Doe & Jenny Doe
         #John Doe, Jane Doe and Jenny Doe
+
+        #if author in bad_names:
+        #    parts = author.split(",")
+        #    author = "{} {}".format(parts[1], parts[0]).strip()
+
         authors = []
-        #author =   todo soup selector for any element with class docauthor
-        #print("~~~~~~~~~{}".format(author))
-        if author in bad_names:
-            parts = author.split(",")
-            author = "{} {}".format(parts[1], parts[0]).strip()
+        author = self.soup.find(class_="docauthor").get_text()
+        author = " ".join(author.split()).strip()
 
         parts = []
         if "/" in author:
@@ -212,14 +349,14 @@ class parseScenario():
         for part in parts:
             part = part.replace(" and ", "&")
             part = part.replace("&amp;", "&")
-            part = part.replace("und", "&")
+            part = part.replace(" und ", "&")
             part_parts = part.split("&")
             authors = authors + part_parts
 
         authors = list(map(str.strip, authors)) 
         authors = list(filter(None, authors))
         if len(authors) == 0:
-            if fallback != '':
+            if fallback_author != '':
                 authors.append(fallback_author)
         return authors
 
@@ -279,7 +416,7 @@ class parseScenario():
             doi = doi[0].get_text()
         vol = self.soup.select('span[class="volume"]')[0].get_text()
         issue = self.soup.select('span[class="issue"]')[0].get_text()
-        year = self.soup.select('span[class="date"]')[0].get_text().replace("Year", "").strip()
+        year = self.soup.select('span[class="date"]')[0].get_text().replace("Year", "").replace("Jahrgang", "").strip()
         citation_str = "{0}, {1}, {2}".format(vol, issue, year)
         if len(doi) > 0:
             citation_str = "{0}, doi:{1}".format(citation_str, doi)
@@ -302,6 +439,8 @@ class parseScenario():
         postnav = self.soup.select("div.postnav")[0]
         postnav.decompose()
         for img in content_box.find_all('img'):
+            if "src" not in img:
+                continue
             if "scenario-back.png" in img["src"]:
                 img.replace_with("[Back]")
                 continue    

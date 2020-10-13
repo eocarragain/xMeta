@@ -821,16 +821,55 @@ class OjsJob(genericJob):
         publication_date = self.get_pub_date(self.publication_date)
         pub_date_str = self.get_pub_date_string(self.publication_date)
         doi = self.get_valid_doi(row["doi"])
+        url_path = self.get_path_from_doi(doi) 
         url = row["url"]
+        issue_url = url.rsplit("/", 3)[0]
+        issue = scenario.parseScenarioIssue(issue_url)
+        toc = issue.get_articles_from_toc()
+        toc_row = toc[url]
+        toc_row_de = {}
 
-        try: 
-            language = row["language"]
-        except:
+        title = row["title"].strip()
+        abstract = row["abstract"]
+        title_de = ""
+        abstract_de = ""
+        secondary_language = False
+        secondary_language_url = ""
+        if url.endswith("en"):
             language = "en"
+            de_url = url[:-2] + "de"
+            if "/foreword/" in url:
+                de_url = de_url.replace("/foreword/", "/vorwort/")
+            if de_url in toc:
+                toc_row_de = toc[de_url]
+                title_de = toc_row_de["title"]
+                secondary_language_url = de_url
+                scen_de = scenario.parseScenario(secondary_language_url)
+                abstract_de = scen_de.get_abstract()
+                
+                secondary_language = True
+                # title de
+                # abstract de
+                # pdf file de
+                # html file de
+        else:
+            language = "de"
+            title_de = title
+            abstract_de = abstract
+    
+        #try: 
+        #    language = row["language"]
+        #except:
+        #    language = "en"
         
         # todo article_seq = 
         article_id = "journal_article-{}".format(doi)
         article_no = re.sub(r"\D", "", doi.split("/")[1])
+        article_seq = doi.split("/")[1].split(".")[-1]
+        pages = row["first_page"]
+        if len(row["first_page"].strip()) > 0:
+            pages = "{0}-{1}".format(row["first_page"], row["last_page"])
+
         article =  {
             article_id: {
                 "@attrs": {
@@ -848,8 +887,10 @@ class OjsJob(genericJob):
                     "@attrs": {"type":"internal", "advice":"ignore"},
                     "@value": article_no
                 },
-                "pdf_file": {},
-                "html_file": {},
+                "pdf_file_en": {},
+                "html_file_en": {},
+                "pdf_file_de": {},
+                "html_file_de": {},
                 "publication": {
                     "@attrs": {
                         "xmlns:xsi": "http://www.w3.org/2001/XMLSchema-instance",
@@ -857,8 +898,8 @@ class OjsJob(genericJob):
                         "version": "1",
                         "status": "3",
                         #"primary_contact_id"
-                        #"url_path"
-                        "seq":"0",
+                        "url_path":url_path,
+                        "seq":article_seq,
                         "section_ref": "ART",
                         #"access_status"
                         "xsi:schemaLocation": "http://pkp.sfu.ca native.xsd"
@@ -867,20 +908,51 @@ class OjsJob(genericJob):
                         "@attrs": {"type":"internal", "advice":"ignore"},
                         "@value": article_no
                     },
-                    "title" : row["title"].strip(),
+                    "doi":{
+                        "@attrs": {"type":"doi", "advice":"update"},
+                        "@name": "id",
+                        "@value": doi
+                    },
+                    "title" : {
+                        "@attrs": {
+                            "locale": 'en_US'
+                        },
+                        "@value": title
+                    },
+                    "title_de" : {
+                        "@attrs": {
+                            "locale": 'de_DE'
+                        },
+                        "@name": "title",
+                        "@value":title_de.strip()
+                    },
                     #prefix
                     "subtitle":"",
-                    "abstract": row["abstract"],
+                    "abstract": {
+                        "@attrs": {
+                            "locale": 'en_US'
+                        },
+                        "@value":abstract
+                    },
+                    "abstract_de" : {
+                        "@attrs": {
+                            "locale": 'de_DE'
+                        },
+                        "@name": "abstract",
+                        "@value":abstract_de
+                    },
                     #rights
                     #licenseUrl
                     #copyrightHolder
                     "copyrightYear": self.get_pub_year(self.publication_date),
                     "keywords": {},
                     "authors": self.get_contributors(row["authors"], "author"),
-                    "pdf_galley": {},
-                    "html_galley": {},
+                    "pdf_galley_en": {},
+                    "html_galley_en": {},
+                    "pdf_galley_de": {},
+                    "html_galley_de": {},
                     #"issue_identification": self.get_issue_identification(),
-                    "pages": "{0}-{1}".format(row["first_page"], row["last_page"]),   
+                    "pages": pages,   
                     #covers
                     #"citations": self.get_citations(row['doi'])
                 }
@@ -891,36 +963,60 @@ class OjsJob(genericJob):
             article[article_id]["publication"]["subtitle"] = row["subtitle"]
 
         keywords = {}
-        if row["keywords"]:
-            keywords = self.get_keywords(row, "keywords")
-        else:
+        if len(row["keywords"]) > 0:
+            keywords = self.get_keywords(row, "keywords", 'en')
+        elif len(row["keywords_de"]) > 0:
+            keywords = self.get_keywords(row, column_heading, 'de')
             languages = self.issue_languages.split("||")
-            for language in languages:
-                language = language.strip()
-                if language != "en" and language != "":
-                    column_heading = "keywords_{}".format(language)
-                    keywords = self.get_keywords(row, column_heading)
-        
+
+                            
         if len(keywords) > 0 :
             article[article_id]["publication"]["keywords"] = keywords
         else:
             del article[article_id]["publication"]["keywords"]
 
+        
         scen = scenario.parseScenario(row["url"])
         pdf_b64 = scen.get_encoded_pdf()
         pdf_id = str(int(article_no) + 100) # todo
-        article[article_id]["pdf_file"] = self.get_submission_file("pdf", pdf_id, pdf_b64)
-        article[article_id]["publication"]["pdf_galley"] = self.get_galley("pdf", pdf_id)
+        article[article_id]["pdf_file_{0}".format(language)] = self.get_submission_file("pdf", pdf_id, pdf_b64, language)
+        article[article_id]["publication"]["pdf_galley_{0}".format(language)] = self.get_galley("pdf", pdf_id, language)
         html_b64 = scen.get_encoded_html()
         html_id = str(int(article_no) + 200) # todo
-        article[article_id]["html_file"] = self.get_submission_file("html", html_id, html_b64)
-        article[article_id]["publication"]["html_galley"] = self.get_galley("html", html_id)
+        article[article_id]["html_file_{0}".format(language)] = self.get_submission_file("html", html_id, html_b64, language)
+        article[article_id]["publication"]["html_galley_{0}".format(language)] = self.get_galley("html", html_id, language)
+
+        if secondary_language == True:
+            scen = scenario.parseScenario(secondary_language_url)
+            pdf_b64 = scen.get_encoded_pdf()
+            pdf_id = str(int(article_no) + 1000) # todo
+            other_language = "de"
+            article[article_id]["pdf_file_{0}".format(other_language)] = self.get_submission_file("pdf", pdf_id, pdf_b64, other_language)
+            article[article_id]["publication"]["pdf_galley_{0}".format(other_language)] = self.get_galley("pdf", pdf_id, other_language)
+            html_b64 = scen.get_encoded_html()
+            html_id = str(int(article_no) + 2000) # todo
+            article[article_id]["html_file_{0}".format(other_language)] = self.get_submission_file("html", html_id, html_b64, other_language)
+            article[article_id]["publication"]["html_galley_{0}".format(other_language)] = self.get_galley("html", html_id, other_language)
+
+        if language == "en":
+            if secondary_language == False:
+                del article[article_id]["pdf_file_de"]
+                del article[article_id]["publication"]["pdf_galley_de"]
+                del article[article_id]["html_file_de"]
+                del article[article_id]["publication"]["html_galley_de"]
+        else:
+            del article[article_id]["pdf_file_en"]
+            del article[article_id]["publication"]["pdf_galley_en"]
+            del article[article_id]["html_file_en"]
+            del article[article_id]["publication"]["html_galley_en"]            
+
         #self.write_art(article)
         #print("returning article")
         return article
 
-    def get_submission_file(self, type, id, enc_data):
-        filename = "{0}.{0}".format(type, type)
+
+    def get_submission_file(self, type, id, enc_data, lang="en"):
+        filename = "{0}_{1}.{2}".format(type, lang, type)
         if type == "html":
             filetype = "text/html"
         else:
@@ -956,13 +1052,27 @@ class OjsJob(genericJob):
         }
         return sub
 
-    def get_galley(self, type, id):
+    def get_locale(self, lang):
+        if lang == "de":
+            locale = "de_DE"
+        else:
+            locale = "en_US"
+        return locale
+
+    def get_galley(self, type, id, lang="en"):
         if type == "html":
             name = "HTML"
-            seq = "1"
+            if lang == "en":
+                seq = "1"
+            else:
+                seq = "3"
         else:
             name = "PDF"
-            seq = "0"
+            if lang == "en":
+                seq = "0"
+            else:
+                seq = "2"
+        locale = self.get_locale(lang)
 
         galley = {
             "@attrs": {
@@ -971,7 +1081,12 @@ class OjsJob(genericJob):
                     "xsi:schemaLocation": "http://pkp.sfu.ca native.xsd"
             },
             "@name": "article_galley",
-            "name": name,
+            "name": {
+                "@attrs": {
+                    "locale": locale
+                },
+                "@value":name
+            },
             "seq": seq,
             "submission_file_ref": {
                 "@attrs": {
@@ -983,17 +1098,20 @@ class OjsJob(genericJob):
         return galley
 
 
-    def get_keywords(self, raw_row, column_heading):
+    def get_keywords(self, raw_row, column_heading, language):
         row = raw_row.fillna('')
         kwords = row[column_heading].replace("|| ", "||").replace(" ||", "||").split("||")
-        keywords = {}
+        locale = self.get_locale(language)
+        keywords = {
+                    "@attrs": {
+                        "locale": locale
+                    }
+                }
         kword_count = 0
         for kword in kwords:
             keywords["kword{0}".format(kword_count)] = {"@name": "keyword", "@value":kword.strip()}
         return keywords
             
-
-
     def get_articles(self):
         articles = {
             "@attrs": {
@@ -1054,7 +1172,19 @@ class OjsJob(genericJob):
         
         return issue_identification
 
+    def get_path_from_doi(self, doi):
+        return doi.split("/")[1].replace(".", "-")
+
     def get_journal_issue(self):
+        issue_identification = self.get_issue_identification()
+        num_pad = issue_identification["number"].rjust(2, '0')
+        num = str(int(num_pad))
+        year = issue_identification["year"]
+        scen_issue_path = "http://research.ucc.ie/scenario/{0}/{1}".format(year, num_pad)
+        scen_issue = scenario.parseScenarioIssue(scen_issue_path)
+
+        
+        doi_path = self.get_path_from_doi(self.issue_doi) 
         journal_issue = {
             "issue": {
                 "@attrs": {
@@ -1063,7 +1193,7 @@ class OjsJob(genericJob):
                     "published":"1",
                     "current": "0",
                     "access_status": "1",
-                    "url_path":"",
+                    "url_path": doi_path,
                     "xsi:schemaLocation": "http://pkp.sfu.ca native.xsd"
                 },
                 "@name": "issue",
@@ -1071,8 +1201,13 @@ class OjsJob(genericJob):
                     "@attrs": {"type":"internal", "advice":"ignore"},
                     "@value": "1"
                 },
+                "doi":{
+                    "@attrs": {"type":"doi", "advice":"update"},
+                    "@name": "id",
+                    "@value": self.issue_doi
+                },
                 "description": "",
-                "issue_identification": self.get_issue_identification(),
+                "issue_identification": issue_identification,
                 "date_published": datetime.datetime.now().strftime("%Y-%m-%d"), 
                 "last_modified": datetime.datetime.now().strftime("%Y-%m-%d"),
                 "sections": {
@@ -1097,16 +1232,52 @@ class OjsJob(genericJob):
                         "title": "Articles"
                     },
                 },
-                #covers
+                "covers": {},
                 "issue_galleys": {
                     "@attrs": {
                         "xmlns:xsi": "http://www.w3.org/2001/XMLSchema-instance",
                         "xsi:schemaLocation": "http://pkp.sfu.ca native.xsd"
+                    },
+                    "issue_galley":{
+                        "label": "Whole Issue",
+                        "issue_file":{
+                            "file_name": "issue_galley.pdf",
+                            "file_type": "application/pdf",
+                            "file_size": '5000',
+                            "content_type": "1",
+                            "original_file_name": "issue_galley.pdf",
+                            "date_uploaded": "2020-10-04",
+                            "date_modified": "2020-10-04",
+                            "embed": {
+                                "@attrs" : {
+                                    "encoding": "base64"
+                                },
+                                "@value" : scen_issue.get_encoded_issue_galley()
+                            }       
+                        }
                     }
                 },
                 "articles": self.get_articles()    
             }
         }
+
+        issue_cover = {}
+        if scen_issue.issue_cover_path != "":
+            issue_cover = {
+                "cover": {
+                    "cover_image": scen_issue.get_issue_cover_filename(),
+                    "cover_image_alt_text": "Issue Cover",
+                    "embed": {
+                        "@attrs" : {
+                            "encoding": "base64"
+                        },
+                        "@value" : scen_issue.get_encoded_issue_cover()
+                    }
+                }
+            }
+            journal_issue["issue"]["covers"] = issue_cover
+        else:
+            del journal_issue["issue"]["covers"]
 
         return journal_issue
 

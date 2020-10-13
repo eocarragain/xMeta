@@ -25,8 +25,8 @@ contrib_wb = load_workbook(contrib_db)
 contrib_ws =  contrib_wb.get_sheet_by_name("Contributors")
 
 base_url = "http://research.ucc.ie/scenario"
-#year_range = range(2007, 2019)
-year_range = range(2007, 2008)
+year_range = range(2009, 2010)
+#year_range = range(2007, 2008)
 issue_urls = []
 for year in year_range:
     issue_urls.append("{0}/{1}/01".format(base_url, year))
@@ -44,8 +44,12 @@ def get_contibs(contribs):
         return ""
 
     for contrib in contribs:
+        if contrib in ["Foreword", "Vorwort"]:
+            contrib = "Manfred Schewe"
         print(contrib)
         name_parts = contrib.split(" ", 1)
+        if len(name_parts) < 2:
+            continue
         given_name = name_parts[0]
         family_name = name_parts[1]
         lookup = get_name_lookup(given_name, family_name)
@@ -142,7 +146,7 @@ if __name__ == '__main__':
         citations_header = ["Article DOI ","Complete reference","DOI for reference"]
         citations_ws.append(citations_header)
 
-        article_urls = issue.get_article_urls()
+        article_urls = issue.get_unique_article_urls()
         for article_url in article_urls:
             if "http" not in article_url:
                 article_url = "{0}/{1}".format(url.rsplit("/", 1)[0], article_url)
@@ -166,8 +170,8 @@ if __name__ == '__main__':
                 article_url,
                 art.get_abstract(),
                 '',
-                art.get_meta_tag("citation_firstpage"),
-                art.get_meta_tag("citation_lastpage"),
+                art.get_start_page(),
+                '',# art.get_meta_tag("citation_lastpage"),
                 '',
                 '',
                 '',
