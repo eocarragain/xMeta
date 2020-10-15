@@ -4,6 +4,7 @@ import base64
 import mimetypes
 import roman
 import pandas as pd
+import copy
 
 class parseScenarioIssue():
     def __init__(self, issue_url):
@@ -18,8 +19,13 @@ class parseScenarioIssue():
     def get_issn(self):
         return "1649-8526"
 
+    def get_volume_no_label(self):
+        vol = self.get_volume()
+        vol = vol.split(" ")[-1]
+        return vol
+
     def get_volume(self):
-        vol = self.soup.select("span.volume")[0].get_text()
+        vol = self.soup.select("span.volume")[0].get_text().strip()
         return vol
 
     #todo dry this out. duplicate of xmet.py
@@ -223,9 +229,9 @@ class parseScenarioIssue():
             else:
                 cora_meta['peer_reviewed'] = "Not peer reviewed"
             if matches_df.iloc[0]['meta_indexed'] == 1:
-                cora_meta['mint_doi'] = "true"
+                cora_meta['mint_doi'] = True
             else:
-                cora_meta['mint_doi'] = "false"        
+                cora_meta['mint_doi'] = False        
         return cora_meta
 
 
@@ -241,6 +247,25 @@ class parseScenario():
         self.issue_url = self.get_issue_url()
         print(self.issue_url)
         self.issue = parseScenarioIssue(self.issue_url)
+        self.title = self.get_meta_tag("citation_title")
+        self.doi = self.get_doi()
+
+    def get_doi(self):
+        base = "10.33178/scenario"
+        vol = self.issue.get_volume_no_label()
+        vol_int = self.issue.get_volume_as_int(vol)
+        issue = int(self.issue.get_issue())
+        art = int(self.page_url.rsplit("/", 2)[1])
+        doi = "{}.{}.{}.{}".format(base, vol_int, issue, art)
+        return doi
+
+    def has_doi(self):
+        toc_section = self.get_section()
+        section_ref = self.issue.get_section_ref(toc_section, self.title)
+        non_ojs_meta = self.issue.get_section_meta_for_non_ojs(section_ref)
+        mint_doi = non_ojs_meta["mint_doi"]
+        print("]]]]]]]]]]]]]]]]]]]]]] {}".format(mint_doi))
+        return mint_doi
 
     def get_issue_url(self):
         url = self.page_url.rsplit("/", 3)[0]
@@ -503,14 +528,19 @@ class parseScenario():
         return base64.b64encode(self.get_html().encode('ascii')).decode('utf-8')
 
     def get_html(self):
-        doi = self.soup.select('span[class="doi"] > a')
-        if len(doi) > 0:
-            doi = doi[0].get_text()
+        html_template = """<!DOCTYPE html><html><head>
+                           <link rel="stylesheet" href="../../../../../public/site/scenario_html.css"></head><body><span /></body></html>"""
+        template = BeautifulSoup(html_template, 'html.parser')
+        doi = self.get_doi()
+        mint_doi = self.has_doi()
+        #doi = self.soup.select('span[class="doi"] > a')
+        #if len(doi) > 0:
+        #    doi = doi[0].get_text()
         vol = self.soup.select('span[class="volume"]')[0].get_text()
         issue = self.soup.select('span[class="issue"]')[0].get_text()
         year = self.soup.select('span[class="date"]')[0].get_text().replace("Year", "").replace("Jahrgang", "").strip()
         citation_str = "{0}, {1}, {2}".format(vol, issue, year)
-        if len(doi) > 0:
+        if len(doi) > 0 and mint_doi == True:
             citation_str = "{0}, doi:{1}".format(citation_str, doi)
         citation = self.soup.new_tag("div")
         citation.string = citation_str
@@ -554,5 +584,7 @@ class parseScenario():
 
             mimetype = mimetypes.guess_type(img_url)[0]
             img['src'] = "data:%s;base64,%s" % (mimetype, base64.b64encode(image_data).decode('utf-8'))
-        #print(content_box)
-        return content_box
+
+        body = template.find("body")
+        body.append(content_box)
+        return template

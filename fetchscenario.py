@@ -25,7 +25,7 @@ contrib_wb = load_workbook(contrib_db)
 contrib_ws =  contrib_wb.get_sheet_by_name("Contributors")
 
 base_url = "http://research.ucc.ie/scenario"
-year_range = range(2015, 2016)
+year_range = range(2016, 2017)
 #year_range = range(2007, 2008)
 issue_urls = []
 for year in year_range:
@@ -171,9 +171,12 @@ if __name__ == '__main__':
             toc_section = art.get_section()
             section_ref = issue.get_section_ref(toc_section, title)
             non_ojs_meta = issue.get_section_meta_for_non_ojs(section_ref)
-            author_keys = get_contibs(art.get_authors('Manfred Schewe'))
+            
+            authors = art.get_authors('Manfred Schewe')
+            author_keys = get_contibs(authors)
             if len(author_keys.strip()) == 0:
-                raise Exception("No authors found when fetching ".format(art_doi))
+                print("@@@@@" + authors)
+                raise Exception("No authors found when fetching {}".format(art_doi))
             art_values = [
                 art_doi,
                 language,
