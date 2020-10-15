@@ -822,7 +822,7 @@ class OjsJob(genericJob):
         pub_date_str = self.get_pub_date_string(self.publication_date)
         doi = self.get_valid_doi(row["doi"])
         url_path = self.get_path_from_doi(doi) 
-        url = row["url"]
+        url = row["url"].strip()
         issue_url = url.rsplit("/", 3)[0]
         issue = scenario.parseScenarioIssue(issue_url)
         toc = issue.get_articles_from_toc()
@@ -867,7 +867,7 @@ class OjsJob(genericJob):
         article_no = re.sub(r"\D", "", doi.split("/")[1])
         article_seq = doi.split("/")[1].split(".")[-1]
         pages = row["first_page"]
-        if len(row["first_page"].strip()) > 0:
+        if len(str(row["first_page"]).strip()) > 0:
             pages = "{0}-{1}".format(row["first_page"], row["last_page"])
 
         article =  {
@@ -966,7 +966,7 @@ class OjsJob(genericJob):
         if len(row["keywords"]) > 0:
             keywords = self.get_keywords(row, "keywords", 'en')
         elif len(row["keywords_de"]) > 0:
-            keywords = self.get_keywords(row, column_heading, 'de')
+            keywords = self.get_keywords(row, "keywords_de", 'de')
             languages = self.issue_languages.split("||")
 
                             
@@ -1208,7 +1208,7 @@ class OjsJob(genericJob):
                 },
                 "description": "",
                 "issue_identification": issue_identification,
-                "date_published": datetime.datetime.now().strftime("%Y-%m-%d"), 
+                "date_published": self.get_pub_date_string(self.publication_date), 
                 "last_modified": datetime.datetime.now().strftime("%Y-%m-%d"),
                 "sections": {
                     "section": {
@@ -1304,6 +1304,7 @@ class OjsJob(genericJob):
 
         output_path = self.path.replace(".xlsx", "_ojs.xml")
         f = open(output_path, "w", encoding='utf-8')
+        print(myDict["issue"]["date_published"])
         f.write(dict2xml(myDict))
         #f.write(str(myDict))
         f.close()

@@ -25,12 +25,14 @@ contrib_wb = load_workbook(contrib_db)
 contrib_ws =  contrib_wb.get_sheet_by_name("Contributors")
 
 base_url = "http://research.ucc.ie/scenario"
-year_range = range(2009, 2010)
+year_range = range(2007, 2021)
 #year_range = range(2007, 2008)
 issue_urls = []
 for year in year_range:
     issue_urls.append("{0}/{1}/01".format(base_url, year))
     issue_urls.append("{0}/{1}/02".format(base_url, year))
+
+issue_urls.remove("http://research.ucc.ie/scenario/2020/02")
 
 def get_contibs(contribs):
     print(type(contribs))
@@ -50,8 +52,9 @@ def get_contibs(contribs):
         name_parts = contrib.split(" ", 1)
         if len(name_parts) < 2:
             continue
-        given_name = name_parts[0]
-        family_name = name_parts[1]
+        else:
+            given_name = name_parts[0]
+            family_name = name_parts[1]
         lookup = get_name_lookup(given_name, family_name)
         matches_df = contrib_df[contrib_df['lookup'].eq(lookup)]
         if len(matches_df) > 0: 
@@ -82,9 +85,11 @@ def get_full_date(date, issue_no=''):
             mnt = '07'
         else:
             mnt = '01'
-        return datetime.datetime(int(date), int(mnt), 1)
+        #return "{}-{}-01".format(date, mnt)
+        return datetime.datetime(int(date), int(mnt), 1).date()
     elif len(date) == 7:
-        return datetime.datetime(int(date[0:4]), int(date[5:7]), 1)
+        #return "{}-{}-01".format(date[0:4], date[5:7])
+        return datetime.datetime(int(date[0:4]), int(date[5:7]), 1).date()
     else:
         return date
 
@@ -137,6 +142,7 @@ if __name__ == '__main__':
         ]
         issue_ws.append(issue_header)
         issue_ws.append(issue_values)
+        issue_ws['D1'].number_format = 'yyyy-mm-dd'
 
         articles_ws = wb.create_sheet("Articles")
         art_header = ['doi','language','title','subtitle','authors','editors','publication_date','url','abstract','abstract_translated_to_en','first_page','last_page','keywords','keywords_de','type','peer_reviewed','Recommended citation for item']

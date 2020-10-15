@@ -152,6 +152,8 @@ class parseScenarioIssue():
         paths = []
         year = self.get_year()
         num = str(int(self.get_issue()))
+        issue_str = num.rjust(2, '0')
+        paths.append("http://ojs.ucc.ie/ojs/public/site/scenario_covers/{}_{}.jpg".format(year, issue_str))
         paths.append("https://www.ucc.ie/en/media/electronicjournals/scenario/journal/{0}issue{1}-150x215.jpg".format(year, num))
         paths.append("https://www.ucc.ie/en/media/electronicjournals/scenario/journal/{0}Issue{1}-150x215.jpg".format(year, num))
         paths.append("https://www.ucc.ie/en/media/electronicjournals/scenario/journal/{0}Issue{1}psd-150x215.jpg".format(year, num))
@@ -316,9 +318,9 @@ class parseScenario():
                 authors.append(fallback_author)
         return authors
 
-    # convenience method to parse 
-    def get_authors(self, fallback_author=''):
-        #known patterns
+
+    def parse_authors(self, authors_str, fallback_author=''):
+     #known patterns
         #John Doe/Jane Doe/Jenny Doe
         #John Doe & Jane Doe
         #John Doe and Jane Doe
@@ -331,20 +333,18 @@ class parseScenario():
         #if author in bad_names:
         #    parts = author.split(",")
         #    author = "{} {}".format(parts[1], parts[0]).strip()
-
         authors = []
-        author = self.soup.find(class_="docauthor").get_text()
-        author = " ".join(author.split()).strip()
-
+        authors_str = self.clean_authors_str(authors_str)
+        authors_str = " ".join(authors_str.split()).strip()
         parts = []
-        if "/" in author:
-            parts = author.split("/")
-        elif ";" in author:
-            parts = author.split(";")
-        elif "," in author:
-            parts = author.split(",")
+        if "/" in authors_str:
+            parts = authors_str.split("/")
+        elif ";" in authors_str:
+            parts = authors_str.split(";")
+        elif "," in authors_str:
+            parts = authors_str.split(",")
         else:
-            parts = [author]
+            parts = [authors_str]
 
         for part in parts:
             part = part.replace(" and ", "&")
@@ -355,10 +355,51 @@ class parseScenario():
 
         authors = list(map(str.strip, authors)) 
         authors = list(filter(None, authors))
+        authors = self.remove_non_authors(authors)
         if len(authors) == 0:
             if fallback_author != '':
                 authors.append(fallback_author)
         return authors
+
+    def clean_authors_str(self, authors_str):        
+        bad_strs = [
+            "Konferenzbericht von",
+            "(Université Grenoble Alpes)",
+            "mit Unterstützung von Julia Collazo, Paul Schneeberger und Jeruna Tiemann"]
+        for bad_str in bad_strs:
+            authors_str = authors_str.replace(bad_str, "").strip()
+
+        return authors_str
+
+    def remove_non_authors(self, authors):
+        non_author_strs = [
+            "4th SCENARIO FORUM SYMPOSIUM Participants",
+            "aus: FAUST von Johann Wolfgang von Goethe",
+            "from: FAUST by Johann Wolfgang von Goethe"
+        ]
+
+        for author in authors:
+            if author in non_author_strs:
+                authors.remove(author)
+            elif "Johann Wolfgang" in author:
+                authors.remove(author)
+            elif "Participants" in author:
+                authors.remove(author)
+        return authors
+
+    def get_authors_from_body(self, fallback_author=''):
+        authors_str = self.soup.find(class_="docauthor").get_text()
+        authors = self.parse_authors(authors_str, fallback_author)
+        return authors
+
+    def get_authors_from_toc(self, fallback_author=''):
+        toc = self.get_toc_elements()
+        authors_str = toc["authors"]
+        authors = self.parse_authors(authors_str, fallback_author)
+        return authors
+
+    def get_authors(self, fallback_author=''):
+        return self.get_authors_from_toc(fallback_author)
 
     def get_abstract(self):
         el = self.soup.select('div.abstract > p')
