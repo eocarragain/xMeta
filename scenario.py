@@ -208,6 +208,26 @@ class parseScenarioIssue():
             return matches_df.iloc[0]['ref']
         else:
             return 'ART'        
+    
+    def get_section_meta_for_non_ojs(self, ref):
+        cora_meta = {}
+        wb = self.section_mapping_wb
+        xl = pd.ExcelFile(wb)
+        section_df = xl.parse('section_meta')
+        matches_df = section_df[section_df['ref'].eq(ref)]
+        if len(matches_df) > 0: 
+            cora_meta['ref'] = 'ref'
+            cora_meta['type'] = matches_df.iloc[0]['cora']
+            if matches_df.iloc[0]['meta_reviewed'] == 1:
+                cora_meta['peer_reviewed'] = "Peer reviewed"
+            else:
+                cora_meta['peer_reviewed'] = "Not peer reviewed"
+            if matches_df.iloc[0]['meta_indexed'] == 1:
+                cora_meta['mint_doi'] = "true"
+            else:
+                cora_meta['mint_doi'] = "false"        
+        return cora_meta
+
 
 class parseScenario():
     def __init__(self, url):

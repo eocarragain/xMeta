@@ -431,6 +431,10 @@ class CrossRefJob(genericJob):
     def get_articles(self):
         articles = {}
         for idx, row in self.article_df.iterrows():
+            if 'mint_doi' in row:
+                if row['mint_doi'] == False:
+                    continue
+
             article = self.get_article(row) 
             articles.update(article)
         return articles
@@ -685,6 +689,9 @@ class DspaceJob(genericJob):
             writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
             writer.writeheader()
             for idx, row in self.article_df[::-1].iterrows():
+                if 'mint_doi' in row:
+                    if row['mint_doi'] == False:
+                        continue
                 article = self.get_article(row) 
                 writer.writerow(article)
 
@@ -1148,20 +1155,34 @@ class OjsJob(genericJob):
             return "0"
 
 
+    def get_issue_title_dict(self, title, locale):
+        block = {
+                    "@attrs": {
+                        "locale" : locale
+                    },
+                    "@name":"title",
+                    "@value": title
+                }
+
+        return block
+
     def get_issue_identification(self):
+        num = self.issue_number
+        year = self.get_pub_year(self.publication_date)
         issue_identification = {
                 "volume": "",
-                "number": self.issue_number,
-                "year": self.get_pub_year(self.publication_date),
-                "title": ""
+                "number": num,
+                "year": year,
+                "title_en": "",
+                "title_de": "" 
             }
-
 
         volume_metadata = self.get_journal_volume()
         if len(volume_metadata.keys()) > 0:
             vol = self.get_valid_vol_number(self.get_journal_volume()["volume"])
             if vol != "0":
                 issue_identification["volume"] = vol
+                vol_roman = str(roman.toRoman(int(vol)))
             else:
                 del issue_identification["volume"]
         else:
@@ -1170,8 +1191,15 @@ class OjsJob(genericJob):
         if len(self.issue_title.strip()) > 0:
             issue_identification["title"] = self.issue_title
         else:
-            del issue_identification["title"]
-        
+            if vol_roman:
+                title_en = "Volume {}, Issue {} ({})".format(vol_roman, num, year)
+                title_de = "Bd. {}, Nr. {} ({})".format(vol_roman, num, year)
+            else:
+                title_en = "Issue {} ({})".format(num, year)
+                title_de = "Nr. {} ({})".format(num, year) 
+
+            issue_identification["title_en"] = self.get_issue_title_dict(title_en, 'en_US')
+            issue_identification["title_de"] = self.get_issue_title_dict(title_de, 'de_DE')
         return issue_identification
 
     def get_path_from_doi(self, doi):

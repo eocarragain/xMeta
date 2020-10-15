@@ -147,7 +147,7 @@ if __name__ == '__main__':
         issue_ws['D1'].number_format = 'yyyy-mm-dd'
 
         articles_ws = wb.create_sheet("Articles")
-        art_header = ['doi','language','title','subtitle','authors','editors','publication_date','url','abstract','abstract_translated_to_en','first_page','last_page','keywords','keywords_de','type','peer_reviewed','Recommended citation for item', "skip_doi"]
+        art_header = ['doi','language','title','subtitle','authors','editors','publication_date','url','abstract','abstract_translated_to_en','first_page','last_page','keywords','keywords_de','type','peer_reviewed','Recommended citation for item', "mint_doi"]
         articles_ws.append(art_header)
         
         citations_ws = wb.create_sheet("Citations")
@@ -163,19 +163,21 @@ if __name__ == '__main__':
             art_doi = "{0}.{1}".format(issue_doi, art_id)
             language = url_parts[-1]
             art = scenario.parseScenario(article_url)
+            title = art.get_meta_tag("citation_title")
             status_code = art.get_status_code()
             if status_code != 200:
                 print("Warning: failed to fetch {}".format(article_url))
 
-            print("############ get auths {}".format(art.get_authors('Manfred Schewe')))
-            print("############ get contibs {}".format(get_contibs(art.get_authors('Manfred Schewe'))))
+            toc_section = art.get_section()
+            section_ref = issue.get_section_ref(toc_section, title)
+            non_ojs_meta = issue.get_section_meta_for_non_ojs(section_ref)
             author_keys = get_contibs(art.get_authors('Manfred Schewe'))
             if len(author_keys.strip()) == 0:
                 raise Exception("No authors found when fetching ".format(art_doi))
             art_values = [
                 art_doi,
                 language,
-                art.get_meta_tag("citation_title"),
+                title,
                 '',
                 author_keys, #todo
                 get_contibs(issue.get_editors()), #todo
@@ -185,11 +187,12 @@ if __name__ == '__main__':
                 '',
                 art.get_start_page(),
                 '',# art.get_meta_tag("citation_lastpage"),
-                '',
-                '',
-                '',
-                '',
-                ''
+                '',# keywords
+                '',# keywords_de
+                non_ojs_meta['type'],# type
+                non_ojs_meta['peer_reviewed'],# peer_reviewed
+                '',# recommended citation
+                non_ojs_meta['mint_doi']# skip doi
             ]
             
             citations = art.get_citations()
