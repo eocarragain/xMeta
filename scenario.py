@@ -3,6 +3,7 @@ import requests
 import base64
 import mimetypes
 import roman
+import pandas as pd
 
 class parseScenarioIssue():
     def __init__(self, issue_url):
@@ -12,6 +13,7 @@ class parseScenarioIssue():
         self.issue_page = req.text
         self.soup = BeautifulSoup(self.issue_page, 'html.parser')
         self.issue_cover_path = self.get_issue_cover_path()
+        self.section_mapping_wb = "scenario_tocs.xlsx"
 
     def get_issn(self):
         return "1649-8526"
@@ -56,6 +58,20 @@ class parseScenarioIssue():
 
         return issue_year
 
+    def get_fallback_section(self, toc_section, toc_title):
+        if "about the authors" in toc_title.lower():
+            toc_section = "biodata"
+        elif "biodata" in toc_title.lower():
+            toc_section = "biodata"
+        elif "autorinnen" in toc_title.lower():
+            toc_section = "biodata"
+        elif "foreword" in toc_title.lower() or "vorwort" in toc_title.lower():
+            toc_section = "foreword"
+        elif toc_section == "":
+            toc_section = "article"  
+
+        return toc_section
+ 
     def get_articles_from_toc(self):
         articles = {}
         article_rows = self.soup.select("div.metadata tr")
@@ -68,12 +84,7 @@ class parseScenarioIssue():
             section = cols[0].get_text().strip()
             title_link = cols[1].select("span.doctitle a")[0]
             title = title_link.get_text().strip()
-            if "about the authors" in title.lower():
-                section = "biodata"
-            elif "biodata" in title.lower():
-                section = "biodata"
-            elif title.lower() in ["Foreword", "Vorwort"]:
-                section = "foreward"                
+            section = self.get_fallback_section(section, title)
             url_html = title_link['href']
             if url_html.startswith("http"):
                 url_html = url_html 
@@ -181,8 +192,22 @@ class parseScenarioIssue():
             raise Exception("Failed to load cover image for {0}".format(self.page_url))
         return req.content
 
-            
-
+    def get_sections_as_dict(self):
+        wb = self.section_mapping_wb
+        xl = pd.ExcelFile(wb)
+        section_df = xl.parse('section_meta')
+        return section_df.to_dict('records')
+    
+    def get_section_ref(self, toc_section, toc_title):
+        toc_section = self.get_fallback_section(toc_section, toc_title)
+        wb = self.section_mapping_wb
+        xl = pd.ExcelFile(wb)
+        map_df = xl.parse('section_map')
+        matches_df = map_df[map_df['section'].eq(toc_section)]
+        if len(matches_df) > 0: 
+            return matches_df.iloc[0]['ref']
+        else:
+            return 'ART'        
 
 class parseScenario():
     def __init__(self, url):
@@ -401,6 +426,12 @@ class parseScenario():
     def get_authors(self, fallback_author=''):
         return self.get_authors_from_toc(fallback_author)
 
+
+    def get_toc_section(self):
+        toc = self.get_toc_elements()
+        section = toc["section"]
+        return section
+   
     def get_abstract(self):
         el = self.soup.select('div.abstract > p')
         if len(el) > 0:

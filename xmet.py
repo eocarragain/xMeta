@@ -857,6 +857,8 @@ class OjsJob(genericJob):
             title_de = title
             abstract_de = abstract
     
+        toc_section = toc_row['section']
+        #print("~~~~~~############~~~~{}".format(issue.get_section_ref(toc_section)))
         #try: 
         #    language = row["language"]
         #except:
@@ -900,7 +902,7 @@ class OjsJob(genericJob):
                         #"primary_contact_id"
                         "url_path":url_path,
                         "seq":article_seq,
-                        "section_ref": "ART",
+                        "section_ref": issue.get_section_ref(toc_section, title),
                         #"access_status"
                         "xsi:schemaLocation": "http://pkp.sfu.ca native.xsd"
                     },
@@ -1210,28 +1212,7 @@ class OjsJob(genericJob):
                 "issue_identification": issue_identification,
                 "date_published": self.get_pub_date_string(self.publication_date), 
                 "last_modified": datetime.datetime.now().strftime("%Y-%m-%d"),
-                "sections": {
-                    "section": {
-                        "@attrs": {
-                            "ref": "ART",
-                            "seq": "1",
-                            "editor_restricted":"0",
-                            "meta_indexed": "1",
-                            "meta_reviewed": "1",
-                            "abstracts_not_required": "0",
-                            "hide_title": "0",
-                            "hide_author": "0",
-                            "abstract_word_count": "500"
-                        },          
-                        "id":{
-                            "@attrs": {"type":"internal", "advice":"ignore"},
-                            "@value": "1",
-                        },
-                        "abbrev": "ART",
-                        "policy": "Articles policy",
-                        "title": "Articles"
-                    },
-                },
+                "sections": self.get_sections(scen_issue.get_sections_as_dict()),
                 "covers": {},
                 "issue_galleys": {
                     "@attrs": {
@@ -1280,6 +1261,58 @@ class OjsJob(genericJob):
             del journal_issue["issue"]["covers"]
 
         return journal_issue
+
+    def get_sections(self, sections_data):
+        sections = {}
+        for data in sections_data:
+            ref = data["ref"]
+            if str(data["policy"]) == 'nan':
+                policy = ""
+            else:
+                policy = data["policy"]
+
+            title_de = data['title_de']
+            if str(title_de) == 'nan' or len(str(title_de)) == "":
+                title_de = data['title_en']
+                       
+            section_details = {
+                    "@attrs": {
+                        "ref": ref,
+                        "seq": str(data["seq"]),
+                        "editor_restricted": str(data["editor_restricted"]),
+                        "meta_indexed": str(data["meta_indexed"]),
+                        "meta_reviewed": str(data["meta_reviewed"]),
+                        "abstracts_not_required": str(data["abstracts_not_required"]),
+                        "hide_title": str(data["hide_title"]),
+                        "hide_author": str(data["hide_author"]),
+                        "abstract_word_count": str(data["abstract_word_count"])
+                    },
+                    "@name": "section",          
+                    "id":{
+                        "@attrs": {"type":"internal", "advice":"ignore"},
+                        "@value": str(data["seq"]),
+                    },
+                    "abbrev": data["abbrev"],
+                    "policy": policy,#str(data["policy"]),
+                    "title_en": {
+                        "@attrs": {
+                            "locale": 'en_US',
+                        },
+                        "@name": "title",
+                        "@value": data["title_en"]
+                    },
+                    "title_de": {
+                        "@attrs": {
+                            "locale": 'de_DE',
+                        },
+                        "@name": "title",
+                        "@value": title_de
+                    },
+                }
+            sections["section_{}".format(ref)] = section_details
+        #print("~~~~~~############~~~~{}".format(sections))
+        return sections
+
 
     def get_root(self):
         root = {
