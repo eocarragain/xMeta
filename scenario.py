@@ -543,9 +543,15 @@ class parseScenario():
         if len(doi) > 0 and mint_doi == True:
             citation_str = "{0}, doi:{1}".format(citation_str, doi)
         citation = self.soup.new_tag("div")
+        citation["id"] = "citation"
         citation.string = citation_str
+        cc_statement = "© {}, The Author(s). This work is licensed under a Creative Commons Attribution-NonCommercial-NoDerivatives 4.0 International License.".format(year)
+        cc = self.soup.new_tag("div")
+        cc["class"] = "cc_statement"
+        cc.string = cc_statement
         metadata = self.soup.select('div[class="metadata"]')[0]
         metadata.append(citation)
+        metadata.append(cc)
         content_box = self.soup.select("div.content")[0]
         if len(self.soup.select("ol.toc")) > 0:
             toc = self.soup.select("ol.toc")[0]
@@ -587,4 +593,5 @@ class parseScenario():
 
         body = template.find("body")
         body.append(content_box)
+        body.append(cc)
         return template

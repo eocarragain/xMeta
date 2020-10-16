@@ -963,7 +963,7 @@ class OjsJob(genericJob):
                     #"issue_identification": self.get_issue_identification(),
                     "pages": pages,   
                     #covers
-                    #"citations": self.get_citations(row['doi'])
+                    "citations": self.get_citations(row['doi'])
                 }
             } 
         }
@@ -990,7 +990,7 @@ class OjsJob(genericJob):
         mint_doi = scen.has_doi()
         if mint_doi == False:
             del article[article_id]["publication"]["doi"]
-            
+
         pdf_b64 = scen.get_encoded_pdf()
         pdf_id = str(int(article_no) + 100) # todo
         article[article_id]["pdf_file_{0}".format(language)] = self.get_submission_file("pdf", pdf_id, pdf_b64, language)
