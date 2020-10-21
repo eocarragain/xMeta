@@ -83,7 +83,7 @@ class fetchUtils():
             return date
 
 base_url = "http://research.ucc.ie/scenario"
-year_range = range(2007, 2021)
+year_range = range(2019, 2021)
 #year_range = range(2007, 2008)
 issue_urls = []
 for year in year_range:
@@ -168,7 +168,7 @@ if __name__ == '__main__':
             art_doi = "{0}.{1}".format(issue_doi, art_id)
             language = url_parts[-1]
             art = scenario.parseScenario(article_url)
-            title = art.get_meta_tag("citation_title")
+            title = art.title
             status_code = art.get_status_code()
             if status_code != 200:
                 raise("Warning: failed to fetch {}".format(article_url)) 

@@ -7,6 +7,7 @@ import pandas as pd
 import copy
 import PyPDF2 as pyPdf
 import io
+import re
 
 class parseScenarioIssue():
     def __init__(self, issue_url):
@@ -181,7 +182,7 @@ class parseScenarioIssue():
         year = self.get_year()
         issue_num = str(int(self.get_issue()))
         issue_str = issue_num.rjust(2, '0')
-        paths.append("http://ojs.ucc.ie/ojs/public/site/scenario_covers/{}_{}.jpg".format(year, issue_str))
+        paths.append("http://ojs.ucc.ie/public/site/scenario_covers/{}_{}.jpg".format(year, issue_str))
         paths.append("https://www.ucc.ie/en/media/electronicjournals/scenario/journal/{0}issue{1}-150x215.jpg".format(year, issue_num))
         paths.append("https://www.ucc.ie/en/media/electronicjournals/scenario/journal/{0}Issue{1}-150x215.jpg".format(year, issue_num))
         paths.append("https://www.ucc.ie/en/media/electronicjournals/scenario/journal/{0}Issue{1}psd-150x215.jpg".format(year, issue_num))
@@ -257,7 +258,7 @@ class parseScenarioIssue():
         # try to open xml
         try:
             print("about to open xml")
-            with open(xml_file) as fp:
+            with open(xml_file, encoding="utf8") as fp:
                 soup = BeautifulSoup(fp, "xml")
                 articles = soup.find_all("article")
                 for article in articles:
@@ -291,7 +292,7 @@ class parseScenario():
         self.issue_url = self.get_issue_url()
         print(self.issue_url)
         self.issue = parseScenarioIssue(self.issue_url)
-        self.title = self.get_meta_tag("citation_title")
+        self.title = self.get_title()
         self.doi = self.get_doi()
         self.pages = self.get_pages()
 
@@ -387,7 +388,7 @@ class parseScenario():
                     if content == "/":
                         continue
                     meta_tags[name].append(content)
-                    print(meta_tags[name])
+                    #print(meta_tags[name])
                 else:               
                     meta_tags[name] = content
 
@@ -517,6 +518,24 @@ class parseScenario():
     def get_end_page_from_meta(self):
         end_page = self.get_meta_tag("citation_lastpage")
         return end_page
+
+    def get_title_from_meta(self):
+        title = self.get_meta_tag("citation_title")
+        # remove dois from titles
+        doi_reg = "\s?http(s)://doi.org/10.33178/scenario.\d\d.\d.\d"
+        title = re.sub(doi_reg, "", title)
+
+        return title   
+
+    def get_title_from_toc(self):
+        title = self.get_toc_elements()["title"]
+        title = " ".join(title.split()).strip()
+        if len(title.strip()) == 0:
+            raise Exception("Failed to get title for {}".format(self.page_url))
+        return title
+
+    def get_title(self):
+        return self.get_title_from_toc()
    
     def get_section(self):
         section = self.get_toc_elements()["section"]
