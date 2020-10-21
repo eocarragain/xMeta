@@ -496,8 +496,10 @@ class DspaceJob(genericJob):
             vol_issue = "{}({})".format(self.volume_number, self.issue_number)
         else:
             vol_issue = self.issue_number
-
-        pages = "pp. {}-{}.".format(start_page, end_page)
+        if len(end_page) > 0:
+            pages = "pp. {}-{}.".format(start_page, end_page)
+        else:
+            pages = "pp. {}".format (start_page)
         article_citation_list = [
             authors_str,
             "({})".format(year),
@@ -785,6 +787,7 @@ class OjsJob(genericJob):
         citation = {
             "citation-{}".format(citation_key): cite
         }
+        print(citation)
         return citation
 
 
@@ -805,7 +808,7 @@ class OjsJob(genericJob):
         for idx, row in art_citations_df.iterrows():
             citation = self.get_citation(row, art_doi, idx + 1) 
             citations.update(citation)
-        #print(citations)
+        print(citations)
         return citations
 
 
@@ -833,7 +836,7 @@ class OjsJob(genericJob):
         issue_url = url.rsplit("/", 3)[0]
         issue = scenario.parseScenarioIssue(issue_url)
         toc = issue.get_articles_from_toc()
-        toc_row = toc[url]
+        toc_row = toc[url.lower()]
         toc_row_de = {}
 
         title = row["title"].strip()
@@ -845,10 +848,13 @@ class OjsJob(genericJob):
         if url.endswith("en"):
             language = "en"
             de_url = url[:-2] + "de"
-            if "/foreword/" in url:
-                de_url = de_url.replace("/foreword/", "/vorwort/")
-            if de_url in toc:
-                toc_row_de = toc[de_url]
+            de_url_lower = de_url.lower()
+            if "/foreword/" in url.lower():
+                de_url_lower = de_url_lower.replace("/foreword/", "/vorwort/")
+            if de_url_lower in toc.keys():
+                de_article_from_toc = toc[de_url_lower]
+                de_url = de_article_from_toc["url"]
+                toc_row_de = toc[de_url_lower]
                 title_de = toc_row_de["title"]
                 secondary_language_url = de_url
                 scen_de = scenario.parseScenario(secondary_language_url)
@@ -875,8 +881,8 @@ class OjsJob(genericJob):
         article_id = "journal_article-{}".format(doi)
         article_no = re.sub(r"\D", "", doi.split("/")[1])
         article_seq = doi.split("/")[1].split(".")[-1]
-        pages = row["first_page"]
-        if len(str(row["first_page"]).strip()) > 0:
+        pages = str(row["first_page"])
+        if len(str(row["last_page"]).strip()) > 0:
             pages = "{0}-{1}".format(row["first_page"], row["last_page"])
 
         article =  {
@@ -884,7 +890,7 @@ class OjsJob(genericJob):
                 "@attrs": {
                     #"xmlns": "http://pkp.sfu.ca",
                     "xmlns:xsi": "http://www.w3.org/2001/XMLSchema-instance",
-                    "date_submitted": datetime.datetime.now().strftime("%Y-%m-%d"), 
+                    "date_submitted": pub_date_str, 
                     "status": "3",
                     "submission_progress":"0",
                     "current_publication_id": article_no,
@@ -909,6 +915,7 @@ class OjsJob(genericJob):
                         #"primary_contact_id"
                         "url_path":url_path,
                         "seq":article_seq,
+                        "date_published": pub_date_str,
                         "section_ref": issue.get_section_ref(toc_section, title),
                         #"access_status"
                         "xsi:schemaLocation": "http://pkp.sfu.ca native.xsd"
@@ -951,8 +958,8 @@ class OjsJob(genericJob):
                         "@value":abstract_de
                     },
                     #rights
-                    #licenseUrl
-                    #copyrightHolder
+                    "licenseUrl": "http://creativecommons.org/licenses/by-nc-nd/4.0",
+                    "copyrightHolder": "the author(s)",
                     "copyrightYear": self.get_pub_year(self.publication_date),
                     "keywords": {},
                     "authors": self.get_contributors(row["authors"], "author"),
@@ -1359,6 +1366,16 @@ class OjsJob(genericJob):
         }
         return root
 
+    def tree_traverse(self, tree):
+        for k, v  in tree.items():
+            if str(type(v)) == "<class 'int'>":
+                print("{} -- {}".format(k, v))
+            elif isinstance(v, dict):
+                found = self.tree_traverse(v) 
+                if found is not None:  # check if recursive call found it
+                    print(found)
+                    return found
+
     def generate(self):
         #myDict = self.get_root()
         myDict = self.get_journal_issue()
@@ -1371,6 +1388,7 @@ class OjsJob(genericJob):
         output_path = self.path.replace(".xlsx", "_ojs.xml")
         f = open(output_path, "w", encoding='utf-8')
         print(myDict["issue"]["date_published"])
+        found = self.tree_traverse(myDict)
         f.write(dict2xml(myDict))
         #f.write(str(myDict))
         f.close()

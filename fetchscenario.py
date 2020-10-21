@@ -83,7 +83,7 @@ class fetchUtils():
             return date
 
 base_url = "http://research.ucc.ie/scenario"
-year_range = range(2017, 2018)
+year_range = range(2007, 2021)
 #year_range = range(2007, 2008)
 issue_urls = []
 for year in year_range:
@@ -93,6 +93,8 @@ for year in year_range:
 next_issue = "http://research.ucc.ie/scenario/2020/02"
 if next_issue in issue_urls:
     issue_urls.remove(next_issue)
+
+#issue_urls = ["http://research.ucc.ie/scenario/2013/02"]
 
 
 if __name__ == '__main__':
@@ -169,6 +171,7 @@ if __name__ == '__main__':
             title = art.get_meta_tag("citation_title")
             status_code = art.get_status_code()
             if status_code != 200:
+                raise("Warning: failed to fetch {}".format(article_url)) 
                 print("Warning: failed to fetch {}".format(article_url))
 
             toc_section = art.get_section()
@@ -192,7 +195,7 @@ if __name__ == '__main__':
                 art.get_abstract(),
                 '',
                 art.get_start_page(),
-                '',# art.get_meta_tag("citation_lastpage"),
+                art.get_end_page(),# art.get_meta_tag("citation_lastpage"),
                 '',# keywords
                 '',# keywords_de
                 non_ojs_meta['type'],# type

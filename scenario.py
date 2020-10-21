@@ -5,6 +5,8 @@ import mimetypes
 import roman
 import pandas as pd
 import copy
+import PyPDF2 as pyPdf
+import io
 
 class parseScenarioIssue():
     def __init__(self, issue_url):
@@ -79,6 +81,8 @@ class parseScenarioIssue():
         return toc_section
  
     def get_articles_from_toc(self):
+        # nb urls used for dict keys are normalised to lower
+        # good for comparison but the url value should not be taken directly from key
         articles = {}
         article_rows = self.soup.select("div.metadata tr")
         for row in article_rows:
@@ -114,12 +118,19 @@ class parseScenarioIssue():
                 "pdf": url_pdf
             }
 
-            articles[url_html] = article
+            articles[url_html.lower()] = article
 
         return articles
 
     def get_article_urls_all_languages(self):
-        return self.get_articles_from_toc().keys()
+        # return self.get_articles_from_toc().keys()
+        # note can't use keys as they are normalised
+        urls = []
+        articles = self.get_articles_from_toc()
+        for key in articles:
+            article = articles[key]
+            urls.append(article['url'])
+        return urls
 
 
     def get_unique_article_urls(self):
@@ -168,13 +179,13 @@ class parseScenarioIssue():
     def get_issue_cover_paths(self):
         paths = []
         year = self.get_year()
-        num = str(int(self.get_issue()))
-        issue_str = num.rjust(2, '0')
+        issue_num = str(int(self.get_issue()))
+        issue_str = issue_num.rjust(2, '0')
         paths.append("http://ojs.ucc.ie/ojs/public/site/scenario_covers/{}_{}.jpg".format(year, issue_str))
-        paths.append("https://www.ucc.ie/en/media/electronicjournals/scenario/journal/{0}issue{1}-150x215.jpg".format(year, num))
-        paths.append("https://www.ucc.ie/en/media/electronicjournals/scenario/journal/{0}Issue{1}-150x215.jpg".format(year, num))
-        paths.append("https://www.ucc.ie/en/media/electronicjournals/scenario/journal/{0}Issue{1}psd-150x215.jpg".format(year, num))
-        paths.append("https://www.ucc.ie/en/media/electronicjournals/scenario/journal/{0}issue{1}psd-150x215.jpg".format(year, num))
+        paths.append("https://www.ucc.ie/en/media/electronicjournals/scenario/journal/{0}issue{1}-150x215.jpg".format(year, issue_num))
+        paths.append("https://www.ucc.ie/en/media/electronicjournals/scenario/journal/{0}Issue{1}-150x215.jpg".format(year, issue_num))
+        paths.append("https://www.ucc.ie/en/media/electronicjournals/scenario/journal/{0}Issue{1}psd-150x215.jpg".format(year, issue_num))
+        paths.append("https://www.ucc.ie/en/media/electronicjournals/scenario/journal/{0}issue{1}psd-150x215.jpg".format(year, issue_num))
         return paths
 
     def get_issue_cover_path(self):
@@ -234,6 +245,39 @@ class parseScenarioIssue():
                 cora_meta['mint_doi'] = False        
         return cora_meta
 
+    def get_pages_from_ojs2(self):
+        # return a dict with article idenifier as key, e.g. 00_en for foreword
+        # and start_page as value
+        # else return empty dict
+        pages = {}
+        year = self.get_year()
+        issue_num = str(int(self.get_issue()))
+        issue_str = issue_num.rjust(2, '0')
+        xml_file = "./ojs2_exports/scenario_{}_{}_ojs2.xml".format(year, issue_str)
+        # try to open xml
+        try:
+            print("about to open xml")
+            with open(xml_file) as fp:
+                soup = BeautifulSoup(fp, "xml")
+                articles = soup.find_all("article")
+                for article in articles:
+                    start_page = article.find("pages").get_text().strip()
+                    print(start_page)
+                    embed = article.find("embed")
+                    if "filename" in embed.attrs:
+                        filename = embed["filename"]
+                        filename = filename.split(".")[0]
+                        filename_parts = filename.split("-")
+                        key = "{}_{}".format(filename_parts[0], filename_parts[-1])
+                        pages[key] = start_page
+                    else:
+                        continue
+
+            return pages
+        except Exception as e:
+            print ("Failed to load or parse ojs2 xml for {}".format(xml_file))
+            print ("Exception: {}".format(e))
+            return {}
 
 class parseScenario():
     def __init__(self, url):
@@ -249,6 +293,7 @@ class parseScenario():
         self.issue = parseScenarioIssue(self.issue_url)
         self.title = self.get_meta_tag("citation_title")
         self.doi = self.get_doi()
+        self.pages = self.get_pages()
 
     def get_doi(self):
         base = "10.33178/scenario"
@@ -264,7 +309,6 @@ class parseScenario():
         section_ref = self.issue.get_section_ref(toc_section, self.title)
         non_ojs_meta = self.issue.get_section_meta_for_non_ojs(section_ref)
         mint_doi = non_ojs_meta["mint_doi"]
-        print("]]]]]]]]]]]]]]]]]]]]]] {}".format(mint_doi))
         return mint_doi
 
     def get_issue_url(self):
@@ -302,9 +346,12 @@ class parseScenario():
                     self.status_code = 200
                     self.page_url = wb_url
                     return wb_page_req.text
+                else:
+                    print("Warning: failed to load from wayback: {}".format(wb_url))
+
         
         self.status_code = 500
-        #raise Exception("Failed to load html for {0}".format(self.page_url))
+        raise Exception("Failed to load html for {0}".format(self.page_url))
         return req.text
 
     def get_wayback_api_url(self, scenario_url):
@@ -356,15 +403,121 @@ class parseScenario():
                 return ""
 
     def get_toc_elements(self):
-        #print(self.issue.get_articles_from_toc())
         url = self.strip_wayback(self.page_url)
-        toc = self.issue.get_articles_from_toc()[url]
+        toc = self.issue.get_articles_from_toc()[url.lower()]
         return toc
 
-    def get_start_page(self):
+    def get_start_page_from_toc(self):
         toc = self.get_toc_elements()
         return toc["start_page"]
 
+    def get_start_page(self):
+        return self.pages["start_page"]
+
+    def get_end_page(self):
+        return self.pages["end_page"]
+
+    #todo dry this out. duplicate of xmet.py and above class
+    def is_int(self, val):
+        try: 
+            int(val)
+            return True
+        except ValueError:
+            return False 
+    
+    #todo dry this out. duplicate of xmet.py and above class
+    def get_page_as_int(self, page):
+        if self.is_int(page):
+            return int(page)
+        elif self.is_int(roman.fromRoman(page.upper())):
+            return int(roman.fromRoman(page.upper()))
+        else:
+            return 0
+
+    def get_start_page_from_ojs2(self):
+        art_id = int(self.page_url.rsplit("/", 2)[1])
+        art_id_str = str(art_id).rjust(2, '0')
+        key = "{}_{}".format(art_id_str, self.get_language())
+        issue_pages = self.issue.get_pages_from_ojs2()
+        print(issue_pages)
+        # if valid return start_page else return False
+        if key in issue_pages:
+            print("found {} in issue pages".format(key))
+            start_page = issue_pages[key]
+            if self.get_page_as_int(start_page) > 0:
+                print("start page from ojs2: {}".format(start_page))
+                return start_page
+            else:
+                return False
+        else:
+            print("Failed to find key {} in issue pages".format(key))
+            return False 
+
+    def get_pdf_page_count(self):
+        # open pdf & get page count
+        pdf_file = io.BytesIO(self.get_pdf())
+        pdf_reader = pyPdf.PdfFileReader(pdf_file)
+        num_pages = int(pdf_reader.numPages)
+        return num_pages
+
+    def get_pages(self):
+        pages = {}
+        start_page = self.get_start_page_from_ojs2()
+        if start_page == False:
+            print("getting start page from toc")
+            start_page = self.get_start_page_from_toc()  
+        pages["start_page"] = str(start_page)
+
+        if self.is_int(start_page) == False:
+            is_roman = True
+        else:
+            is_roman = False
+    
+        try:
+            num_pages = self.get_pdf_page_count()
+        
+            if self.get_language() == 'en':
+                url = self.page_url
+                de_url = url.replace ("/en", "/de")
+                de_url_lower = de_url.lower()
+                if "/foreword/" in url.lower():
+                    de_url_lower = de_url_lower.replace("/foreword/", "/vorwort/")
+                print(de_url)
+                articles_from_toc = self.issue.get_articles_from_toc()
+                if de_url_lower in articles_from_toc.keys():
+                    de_article_from_toc = articles_from_toc[de_url_lower]
+                    de_url = de_article_from_toc["url"]
+                    print("found de url {}".format(de_url))
+                    art_de = parseScenario(de_url)
+                    art_de_sp = art_de.get_start_page()
+                    art_de_sp_as_int = art_de.get_page_as_int(art_de_sp)
+                    num_pages = num_pages + art_de.get_pdf_page_count()
+
+                    # sometimes the de verrsion comes first. if so, use it as start page        
+                    if art_de_sp_as_int < self.get_page_as_int(start_page):
+                        start_page =  art_de_sp
+                        pages["start_page"] = start_page
+                    
+            # calculate last_page including roman numerals
+            start_page_int = self.get_page_as_int(start_page)
+
+            end_page = start_page_int + (num_pages - 1)
+            if is_roman == True:
+                end_page = roman.toRoman(end_page).lower()
+        except Exception as e:
+            print ("Failed to load number of pages from pdf: {}".format(e))
+            raise(e)
+            #fallback to article meta element (unreliable)
+            end_page = self.get_end_page_from_meta()
+
+        pages["end_page"] = str(end_page)
+        print(pages)
+        return pages
+
+    def get_end_page_from_meta(self):
+        end_page = self.get_meta_tag("citation_lastpage")
+        return end_page
+   
     def get_section(self):
         section = self.get_toc_elements()["section"]
         return section
@@ -487,7 +640,7 @@ class parseScenario():
         return abstract
 
     def get_language(self):
-        lang = url.split("/")[-1]
+        lang = self.page_url.split("/")[-1]
         if lang in ['en', 'de']:
             return lang
         else:
@@ -501,7 +654,9 @@ class parseScenario():
             #print(heading)
             first_entry = heading[0].find_next("p")
             #print(first_entry)
-            citations.append(first_entry.get_text())
+            first = first_entry.get_text()
+            first = " ".join(first.split()).strip()
+            citations.append(first)
             # others = first_entry.find_next_siblings('p')
             others = first_entry.find_next_siblings()
             for other in others:
@@ -527,9 +682,56 @@ class parseScenario():
     def get_encoded_html(self):
         return base64.b64encode(self.get_html().encode('ascii')).decode('utf-8')
 
+    def get_absolute_url(self, frag):
+        if frag.startswith("http"):
+            url = frag
+        elif frag.startswith("/web/"):
+            url ="{0}{1}".format("http://web.archive.org", frag) 
+        else:
+            url ="{0}/{1}".format(self.page_url.rsplit("/", 1)[0], frag)
+        return url
+
+    def strip_wb(self, url):
+        if  "web.archive.org" in url:
+            parts = url.split("//")
+            if len(parts) < 3:
+                orig_url = url
+            else:
+                orig_url = "http://{}".format(parts[2])
+        else: 
+            orig_url = url
+        return orig_url
+
+    def get_html_links(self):
+        links = {}
+        src_types = ["embed", "source", "track"]
+        #embed src
+        #source src
+        #track src
+        content_box = self.soup.select("div.content")[0]
+        for a in content_box.find_all('a'):
+            if "href" in a.attrs:
+                if a["href"].startswith("#"):
+                    continue
+                url = self.get_absolute_url(a["href"])
+                url = self.strip_wb(url)
+                links[url] = {"link_type": "a", "page_url": self.page_url, "text": a.get_text(), "url": url}
+
+        for src_type in src_types:
+            for el in content_box.find_all(src_type):
+                if "src" in el.attrs:
+                    url = self.get_absolute_url(el["src"])
+                    url = self.strip_wb(url)
+                    links[url] = {"link_type": "src", "page_url": self.page_url, "text": a.get_text(), "url": url}
+        return links
+
+
+
     def get_html(self):
         html_template = """<!DOCTYPE html><html><head>
-                           <link rel="stylesheet" href="../../../../../public/site/scenario_html.css"></head><body><span /></body></html>"""
+                           <link rel="stylesheet" href="../../../../../public/site/scenario_html.css" />
+                           <script src="../../../../../public/site/scenario_html.js" />
+                           </head><body><span /></body></html>"""
         template = BeautifulSoup(html_template, 'html.parser')
         doi = self.get_doi()
         mint_doi = self.has_doi()
@@ -548,6 +750,7 @@ class parseScenario():
         cc_statement = "© {}, The Author(s). This work is licensed under a Creative Commons Attribution-NonCommercial-NoDerivatives 4.0 International License.".format(year)
         cc = self.soup.new_tag("div")
         cc["class"] = "cc_statement"
+        cc["id"] = "cc_top"
         cc.string = cc_statement
         metadata = self.soup.select('div[class="metadata"]')[0]
         metadata.append(citation)
@@ -567,31 +770,90 @@ class parseScenario():
         postnav = self.soup.select("div.postnav")[0]
         postnav.decompose()
         for img in content_box.find_all('img'):
-            if "src" not in img:
+            if "src" not in img.attrs:
                 continue
             if "scenario-back.png" in img["src"]:
                 img.replace_with("[Back]")
                 continue    
-            
-            if img["src"].startswith("http"):
-                img_url = img["src"]
-            elif img["src"].startswith("/web/"):
-                img_url ="{0}/{1}".format("https://web.archive.org", img["src"]) 
-            else:
-                img_url ="{0}/{1}".format(self.page_url.rsplit("/", 1)[0], img["src"])
+            img_url = self.get_absolute_url(img["src"])
             print("########################## {0}".format(img_url))
             # horrible hack for broken image
-            if img_url == "http://research.ucc.ie/journals/scenario/2019/02/PrivasBreaute/10/en/media/image6.png":
+            bad_images = [
+                "http://research.ucc.ie/scenario/2018/02/TrimmisKalogirou/03/en/media/image6.jpeg",
+                "http://research.ucc.ie/journals/scenario/2019/02/PrivasBreaute/10/en/media/image6.png",
+                "http://research.ucc.ie/scenario/2019/02/PrivasBreaute/10/en/media/image6.png",
+                "http://web.archive.org/web/20161214045437im_/http://research.ucc.ie/scenario/2010/02/donnery/03/en/image7.png image9.png image6.png image8.png image4.png image5.png",
+                "http://web.archive.org/web/20161214045437im_/http://research.ucc.ie/scenario/2010/02/donnery/03/en/image7.png%20image9.png%20image6.png%20image8.png%20image4.png%20image5.png",
+                "http://web.archive.org/web/20161214045437/http://research.ucc.ie/scenario/2010/02/donnery/03/en/image7.png%20image9.png%20image6.png%20image8.png%20image4.png%20image5.png",
+                "http://web.archive.org/web/20161214045437/http://research.ucc.ie/scenario/2010/02/donnery/03/en/image7.png image9.png image6.png image8.png image4.png image5.png",
+                "http://research.ucc.ie/scenario/2010/02/donnery/03/en/image7.png%20image9.png%20image6.png%20image8.png%20image4.png%20image5.png",
+                "http://research.ucc.ie/scenario/2010/02/donnery/03/en/image7.png image9.png image6.png image8.png image4.png image5.png",
+                "http://research.ucc.ie/scenario/2015/01/Berghoff/05/de/media/image3.jpeg",
+                "http://research.ucc.ie/scenario/2019/02/VillanuevaOSullivan/06/en/media/image3.jpg media/image4.jpg",
+                "http://research.ucc.ie/scenario/2019/02/VillanuevaOSullivan/06/en/media/image3.jpg%20media/image4.jpg"
+            ]
+            if img_url in bad_images:
                 continue
             image_req = requests.get(img_url)
             if image_req.status_code != 200:
-                raise Exception("Unable to download image {0} for page {1}".format(img_url, self.page_url))
+                if  "web.archive.org" in img_url:
+                    orig_img_url = "http://{}".format(img_url.split("//")[2])
+                    image_req = requests.get(orig_img_url)
+                    print("retrying image download from original: {}".format(orig_img_url))
+                    if image_req.status_code != 200:
+                        raise Exception("Unable to download image {0} from research.ucc.ie or from {1}".format(img_url, self.page_url))
+                else:        
+                    raise Exception("Unable to download image {0} for page {1}".format(img_url, self.page_url))
             image_data = image_req.content
 
             mimetype = mimetypes.guess_type(img_url)[0]
             img['src'] = "data:%s;base64,%s" % (mimetype, base64.b64encode(image_data).decode('utf-8'))
 
+            # parent a tag
+            parent = img.parent
+            if parent.name == "a":
+                if "target" in parent.attrs:
+                    del parent["target"]
+
+                if "title" in parent.attrs:
+                    del parent["title"]
+
+                if "href" in parent.attrs:
+                    parent["href"] = "#"
+
+        media = [
+            "en/04-retzlaff-2008-01-en/04-retzlaff-2008-01-en-p1.pdf",
+            "de/wortspiel.mp3",
+            "de/Renate%20Breitig%20Interview.mp3",
+            "en/Peadar-Interview.mp3",
+            "de/Nunes-Interview-11-04-13.mp3",
+            "de/InterviewwithHanneSeitz.mp3"
+            ]
+
+        for a in content_box.find_all('a'):
+            if "href" not in a.attrs:
+                continue
+            link = a["href"]
+            if link.strip() in media:
+                ab_url = self.get_absolute_url(link)
+                wb_api_url = self.get_wayback_api_url(ab_url)
+                wb_api_resp = requests.get(wb_api_url).json()
+                if wb_api_resp["archived_snapshots"] != {}:
+                    wb_url = wb_api_resp["archived_snapshots"]["closest"]["url"]
+                    if wb_api_resp["archived_snapshots"]["closest"]["status"] == "200":
+                        a["href"] = wb_url
+                    else:
+                        raise Exception("No wayback snapshot found for {0} from {1}".format(ab_url, self.page_url))
+                else:
+                    raise Exception("No wayback snapshot found for {0} from {1}".format(ab_url, self.page_url))
+
+
+
         body = template.find("body")
         body.append(content_box)
-        body.append(cc)
+        cc_bottom = self.soup.new_tag("div")
+        cc_bottom["class"] = "cc_statement"
+        cc_bottom["id"] = "cc_bottom"
+        cc_bottom.string = cc_statement
+        body.append(cc_bottom)
         return template
