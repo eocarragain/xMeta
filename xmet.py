@@ -838,6 +838,11 @@ class OjsJob(genericJob):
         toc = issue.get_articles_from_toc()
         toc_row = toc[url.lower()]
         toc_row_de = {}
+        url_parts = url.split("/")
+        art_no = url_parts[-2]
+        issue_no = url_parts[-4]
+        issue_year = url_parts[-5]
+        filename_base = "{}-{}-{}".format(issue_year, issue_no, art_no)
 
         title = row["title"].strip()
         abstract = row["abstract"]
@@ -1000,11 +1005,11 @@ class OjsJob(genericJob):
 
         pdf_b64 = scen.get_encoded_pdf()
         pdf_id = str(int(article_no) + 100) # todo
-        article[article_id]["pdf_file_{0}".format(language)] = self.get_submission_file("pdf", pdf_id, pdf_b64, language)
+        article[article_id]["pdf_file_{0}".format(language)] = self.get_submission_file("pdf", pdf_id, pdf_b64, language, filename_base)
         article[article_id]["publication"]["pdf_galley_{0}".format(language)] = self.get_galley("pdf", pdf_id, language)
         html_b64 = scen.get_encoded_html()
         html_id = str(int(article_no) + 200) # todo
-        article[article_id]["html_file_{0}".format(language)] = self.get_submission_file("html", html_id, html_b64, language)
+        article[article_id]["html_file_{0}".format(language)] = self.get_submission_file("html", html_id, html_b64, language. filename_base)
         article[article_id]["publication"]["html_galley_{0}".format(language)] = self.get_galley("html", html_id, language)
 
         if secondary_language == True:
@@ -1012,11 +1017,11 @@ class OjsJob(genericJob):
             pdf_b64 = scen.get_encoded_pdf()
             pdf_id = str(int(article_no) + 1000) # todo
             other_language = "de"
-            article[article_id]["pdf_file_{0}".format(other_language)] = self.get_submission_file("pdf", pdf_id, pdf_b64, other_language)
+            article[article_id]["pdf_file_{0}".format(other_language)] = self.get_submission_file("pdf", pdf_id, pdf_b64, other_language, filename_base)
             article[article_id]["publication"]["pdf_galley_{0}".format(other_language)] = self.get_galley("pdf", pdf_id, other_language)
             html_b64 = scen.get_encoded_html()
             html_id = str(int(article_no) + 2000) # todo
-            article[article_id]["html_file_{0}".format(other_language)] = self.get_submission_file("html", html_id, html_b64, other_language)
+            article[article_id]["html_file_{0}".format(other_language)] = self.get_submission_file("html", html_id, html_b64, other_language, filename_base)
             article[article_id]["publication"]["html_galley_{0}".format(other_language)] = self.get_galley("html", html_id, other_language)
 
         if language == "en":
@@ -1036,8 +1041,8 @@ class OjsJob(genericJob):
         return article
 
 
-    def get_submission_file(self, type, id, enc_data, lang="en"):
-        filename = "{0}_{1}.{2}".format(type, lang, type)
+    def get_submission_file(self, type, id, enc_data, lang="en", filename_base):
+        filename = "{0}_{1}_{2}.{3}".format(filename_base, type, lang, type)
         if type == "html":
             filetype = "text/html"
         else:
@@ -1205,10 +1210,10 @@ class OjsJob(genericJob):
         else:
             if vol_roman:
                 title_en = "Volume {}, Issue {} ({})".format(vol_roman, num, year)
-                title_de = "Bd. {}, Nr. {} ({})".format(vol_roman, num, year)
+                title_de = "Jahrgang {}, Ausgabe {} ({})".format(vol_roman, num, year)
             else:
                 title_en = "Issue {} ({})".format(num, year)
-                title_de = "Nr. {} ({})".format(num, year) 
+                title_de = "Ausgabe {} ({})".format(num, year) 
 
             issue_identification["title_en"] = self.get_issue_title_dict(title_en, 'en_US')
             issue_identification["title_de"] = self.get_issue_title_dict(title_de, 'de_DE')
