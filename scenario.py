@@ -648,14 +648,40 @@ class parseScenario():
         toc = self.get_toc_elements()
         section = toc["section"]
         return section
-   
+
+    def get_word_list(self, str):
+        str = " ".join(str.split()).strip()
+        res = re.findall(r'\w+', str)
+        return res       
+
+    def get_word_count(self, str):
+        res = len(self.get_word_list(str))
+        return res
+
     def get_abstract(self):
-        el = self.soup.select('div.abstract > p')
-        if len(el) > 0:
-            abstract = el[0].get_text()
-            abstract = " ".join(abstract.split()).strip()
-        else:
-            abstract = ""
+        els = self.soup.select('div.abstract > p')
+        abstract = ""
+        wc = 0
+        if len(els) > 0:
+            for el in els:
+                abstract = "{} {}".format(abstract, el.get_text())
+        
+        wc = self.get_word_count(abstract)
+        if wc < 20:
+            els = self.soup.select('div.text p')
+            if len(els) > 0:
+                el_no = 0
+                while wc < 200 and el_no < len(els):
+                    abstract = "{} {}".format(abstract, el[el_no].get_text())
+                    wc = self.get_word_count(abstract)
+                    el_no += 1
+
+        if wc > 200:
+            word_list = self.get_word_list(abstract)
+            abstract = " ".join(word_list[:199])
+            abstract = "{} ...".format(abstract)
+
+        abstract = " ".join(abstract.split()).strip()
         return abstract
 
     def get_language(self):
