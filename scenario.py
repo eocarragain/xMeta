@@ -659,7 +659,7 @@ class parseScenario():
         return res
 
     def get_abstract(self):
-        els = self.soup.select('div.abstract > p')
+        els = self.soup.select('div.abstract p')
         abstract = ""
         wc = 0
         if len(els) > 0:
@@ -676,10 +676,10 @@ class parseScenario():
                     wc = self.get_word_count(abstract)
                     el_no += 1
 
-        if wc > 200:
-            word_list = self.get_word_list(abstract)
-            abstract = " ".join(word_list[:199])
-            abstract = "{} ...".format(abstract)
+            if wc > 200:
+                word_list = self.get_word_list(abstract)
+                abstract = " ".join(word_list[:199])
+                abstract = "{} ...".format(abstract)
 
         abstract = " ".join(abstract.split()).strip()
         return abstract
