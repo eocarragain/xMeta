@@ -1330,7 +1330,7 @@ class OjsJob(genericJob):
                         "abstracts_not_required": str(data["abstracts_not_required"]),
                         "hide_title": str(data["hide_title"]),
                         "hide_author": str(data["hide_author"]),
-                        "abstract_word_count": str(data["abstract_word_count"])
+                        "abstract_word_count": "0"#str(data["abstract_word_count"])
                     },
                     "@name": "section",          
                     "id":{

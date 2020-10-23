@@ -83,7 +83,7 @@ class fetchUtils():
             return date
 
 base_url = "http://research.ucc.ie/scenario"
-year_range = range(2019, 2021)
+year_range = range(2007, 2021)
 #year_range = range(2007, 2008)
 issue_urls = []
 for year in year_range:

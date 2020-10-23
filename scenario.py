@@ -216,6 +216,17 @@ class parseScenarioIssue():
         section_df = xl.parse('section_meta')
         return section_df.to_dict('records')
     
+
+    def get_section_word_count(self, section_ref):
+        wb = self.section_mapping_wb
+        xl = pd.ExcelFile(wb)
+        section_df = xl.parse('section_meta')
+        matches_df = section_df[section_df['ref'].eq(section_ref)]
+        if len(matches_df) > 0: 
+            return matches_df.iloc[0]['abstract_word_count']
+        else:
+            return '0'
+
     def get_section_ref(self, toc_section, toc_title):
         toc_section = self.get_fallback_section(toc_section, toc_title)
         wb = self.section_mapping_wb
@@ -225,7 +236,7 @@ class parseScenarioIssue():
         if len(matches_df) > 0: 
             return matches_df.iloc[0]['ref']
         else:
-            return 'ART'        
+            return 'ART'
     
     def get_section_meta_for_non_ojs(self, ref):
         cora_meta = {}
@@ -661,6 +672,12 @@ class parseScenario():
     def get_abstract(self):
         els = self.soup.select('div.abstract p')
         abstract = ""
+        toc_section = self.get_section()
+        section_ref = self.issue.get_section_ref(toc_section, self.title)
+        section_limit = int(self.issue.get_section_word_count(section_ref))
+        if section_limit == 0:
+            return abstract
+
         wc = 0
         if len(els) > 0:
             for el in els:
@@ -671,14 +688,14 @@ class parseScenario():
             els = self.soup.select('div.text p')
             if len(els) > 0:
                 el_no = 0
-                while wc < 200 and el_no < len(els):
-                    abstract = "{} {}".format(abstract, el[el_no].get_text())
+                while wc < section_limit and el_no < len(els):
+                    abstract = "{} {}".format(abstract, els[el_no].get_text())
                     wc = self.get_word_count(abstract)
                     el_no += 1
 
-            if wc > 200:
+            if wc > section_limit:
                 word_list = self.get_word_list(abstract)
-                abstract = " ".join(word_list[:199])
+                abstract = " ".join(word_list[:section_limit])
                 abstract = "{} ...".format(abstract)
 
         abstract = " ".join(abstract.split()).strip()
