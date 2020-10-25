@@ -609,6 +609,9 @@ class parseBoolean(parseArticle):
         self.doi = self.get_doi()
         self.pages = self.get_pages()
 
+    def has_doi(self):
+        return True
+
     def get_page(self, req):
         if req.status_code == 200:
             self.status_code = 200
