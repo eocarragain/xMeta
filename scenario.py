@@ -803,11 +803,12 @@ class parseBoolean(parseArticle):
             img_url = self.get_absolute_url(img["src"])
             print("########################## {0}".format(img_url))
             # horrible hack for broken image
-            bad_images = [
-                "http://research.ucc.ie/boolean/2011/00/Murray/35/35-Murray-2011-00-en/media/image3.png"
-            ]
+            bad_images = {
+                "http://research.ucc.ie/boolean/2011/00/Murray/35/35-Murray-2011-00-en/media/image3.png":
+                "http://ojs.ucc.ie/public/site/boolean_covers/2011-35_image3.png"
+            }
             if img_url in bad_images:
-                continue
+                img_url = bad_images[img_url]
             image_req = requests.get(img_url)
             if image_req.status_code != 200:
                 if  "web.archive.org" in img_url:
@@ -1229,22 +1230,22 @@ class parseScenario(parseArticle):
             img_url = self.get_absolute_url(img["src"])
             print("########################## {0}".format(img_url))
             # horrible hack for broken image
-            bad_images = [
-                "http://research.ucc.ie/scenario/2018/02/TrimmisKalogirou/03/en/media/image6.jpeg",
-                "http://research.ucc.ie/journals/scenario/2019/02/PrivasBreaute/10/en/media/image6.png",
-                "http://research.ucc.ie/scenario/2019/02/PrivasBreaute/10/en/media/image6.png",
-                "http://web.archive.org/web/20161214045437im_/http://research.ucc.ie/scenario/2010/02/donnery/03/en/image7.png image9.png image6.png image8.png image4.png image5.png",
-                "http://web.archive.org/web/20161214045437im_/http://research.ucc.ie/scenario/2010/02/donnery/03/en/image7.png%20image9.png%20image6.png%20image8.png%20image4.png%20image5.png",
-                "http://web.archive.org/web/20161214045437/http://research.ucc.ie/scenario/2010/02/donnery/03/en/image7.png%20image9.png%20image6.png%20image8.png%20image4.png%20image5.png",
-                "http://web.archive.org/web/20161214045437/http://research.ucc.ie/scenario/2010/02/donnery/03/en/image7.png image9.png image6.png image8.png image4.png image5.png",
-                "http://research.ucc.ie/scenario/2010/02/donnery/03/en/image7.png%20image9.png%20image6.png%20image8.png%20image4.png%20image5.png",
-                "http://research.ucc.ie/scenario/2010/02/donnery/03/en/image7.png image9.png image6.png image8.png image4.png image5.png",
-                "http://research.ucc.ie/scenario/2015/01/Berghoff/05/de/media/image3.jpeg",
-                "http://research.ucc.ie/scenario/2019/02/VillanuevaOSullivan/06/en/media/image3.jpg media/image4.jpg",
-                "http://research.ucc.ie/scenario/2019/02/VillanuevaOSullivan/06/en/media/image3.jpg%20media/image4.jpg"
-            ]
+            bad_images = {
+                "http://research.ucc.ie/scenario/2018/02/TrimmisKalogirou/03/en/media/image6.jpeg": "http://ojs.ucc.ie/public/site/scenario_covers/2018-02-03_image6.png",
+                "http://research.ucc.ie/journals/scenario/2019/02/PrivasBreaute/10/en/media/image6.png": "http://ojs.ucc.ie/public/site/scenario_covers/2019-02-10_image6.png",
+                "http://research.ucc.ie/scenario/2019/02/PrivasBreaute/10/en/media/image6.png": "http://ojs.ucc.ie/public/site/scenario_covers/2019-02-10_image6.png",
+                "http://web.archive.org/web/20161214045437im_/http://research.ucc.ie/scenario/2010/02/donnery/03/en/image7.png image9.png image6.png image8.png image4.png image5.png" : "http://ojs.ucc.ie/public/site/scenario_covers/2010-02-03_images.png",
+                "http://web.archive.org/web/20161214045437im_/http://research.ucc.ie/scenario/2010/02/donnery/03/en/image7.png%20image9.png%20image6.png%20image8.png%20image4.png%20image5.png" : "http://ojs.ucc.ie/public/site/scenario_covers/2010-02-03_images.png",
+                "http://web.archive.org/web/20161214045437/http://research.ucc.ie/scenario/2010/02/donnery/03/en/image7.png%20image9.png%20image6.png%20image8.png%20image4.png%20image5.png" : "http://ojs.ucc.ie/public/site/scenario_covers/2010-02-03_images.png",
+                "http://web.archive.org/web/20161214045437/http://research.ucc.ie/scenario/2010/02/donnery/03/en/image7.png image9.png image6.png image8.png image4.png image5.png" : "http://ojs.ucc.ie/public/site/scenario_covers/2010-02-03_images.png",
+                "http://research.ucc.ie/scenario/2010/02/donnery/03/en/image7.png%20image9.png%20image6.png%20image8.png%20image4.png%20image5.png" : "http://ojs.ucc.ie/public/site/scenario_covers/2010-02-03_images.png",
+                "http://research.ucc.ie/scenario/2010/02/donnery/03/en/image7.png image9.png image6.png image8.png image4.png image5.png" : "http://ojs.ucc.ie/public/site/scenario_covers/2010-02-03_images.png",
+                "http://research.ucc.ie/scenario/2015/01/Berghoff/05/de/media/image3.jpeg": "http://ojs.ucc.ie/public/site/scenario_covers/2015-01-05_image3.jpeg",
+                "http://research.ucc.ie/scenario/2019/02/VillanuevaOSullivan/06/en/media/image3.jpg media/image4.jpg": "http://ojs.ucc.ie/public/site/scenario_covers/2019-02-06_image3.png",
+                "http://research.ucc.ie/scenario/2019/02/VillanuevaOSullivan/06/en/media/image3.jpg%20media/image4.jpg": "http://ojs.ucc.ie/public/site/scenario_covers/2019-02-06_image3.png"
+            }
             if img_url in bad_images:
-                continue
+                img_url = bad_images[img_url]
             image_req = requests.get(img_url)
             if image_req.status_code != 200:
                 if  "web.archive.org" in img_url:
