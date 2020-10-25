@@ -9,27 +9,13 @@ import PyPDF2 as pyPdf
 import io
 import re
 
-class parseScenarioIssue():
+class parseIssue():
     def __init__(self, issue_url):
-        print(issue_url)
         self.issue_url = issue_url.strip()   
         req = requests.get(self.issue_url)
         self.issue_page = req.text
         self.soup = BeautifulSoup(self.issue_page, 'html.parser')
         self.issue_cover_path = self.get_issue_cover_path()
-        self.section_mapping_wb = "scenario_tocs.xlsx"
-
-    def get_issn(self):
-        return "1649-8526"
-
-    def get_volume_no_label(self):
-        vol = self.get_volume()
-        vol = vol.split(" ")[-1]
-        return vol
-
-    def get_volume(self):
-        vol = self.soup.select("span.volume")[0].get_text().strip()
-        return vol
 
     #todo dry this out. duplicate of xmet.py
     def is_int(self, val):
@@ -47,6 +33,192 @@ class parseScenarioIssue():
             return str(roman.fromRoman(vol))
         else:
             return "0"
+
+    def get_volume(self):
+        return ""
+
+    def get_issue(self):
+        return ""
+
+    def get_year(self):
+        return ""
+
+    def get_editors(self):
+        return []
+
+    def get_articles_from_toc(self):
+        return {}
+
+    def get_article_urls_all_languages(self):
+        # return self.get_articles_from_toc().keys()
+        # note can't use keys as they are normalised
+        urls = []
+        articles = self.get_articles_from_toc()
+        for key in articles:
+            article = articles[key]
+            urls.append(article['url'])
+        return urls
+
+    def get_unique_article_urls(self):
+        return []
+
+    def get_issue_galley_path(self):
+        return ""
+
+    def get_issue_galley(self):
+        req = requests.get(self.get_issue_galley_path())
+        if req.status_code != 200:
+            raise Exception("Failed to load issue galley for {0}".format(self.page_url))
+        return req.content        
+
+    def get_encoded_issue_galley(self):
+        b64 = base64.b64encode(self.get_issue_galley()).decode('utf-8')
+        return b64
+
+    #def get_encoded_issue_cover(self):
+        # todo
+
+    #def get_issue_cover(self):
+        # todo
+
+    def get_issue_cover_path(self):
+        return ""
+
+    def get_issue_cover_filename(self):
+        issue_cover_path = self.get_issue_cover_path() 
+        if issue_cover_path == "":
+            return ""
+        else:
+            return issue_cover_path.split("/")[-1]
+
+    def get_encoded_issue_cover(self):
+        b64 = base64.b64encode(self.get_issue_cover()).decode('utf-8')
+        return b64
+
+    def get_issue_cover(self):
+        req = requests.get(self.issue_cover_path)
+        if req.status_code != 200:
+            raise Exception("Failed to load cover image for {0}".format(self.page_url))
+        return req.content
+
+    def get_sections_as_dict(self):
+        art = [
+            {'ref': 'ART', 
+            'title_en': 'Articles', 
+            'title_de': 'Artikel', 
+            'abbrev': 'art', 
+            'policy': 'nan', 
+            'seq': 2, 
+            'editor_restricted': 0, 
+            'meta_indexed': 1, 
+            'meta_reviewed': 1, 
+            'abstracts_not_required': 0, 
+            'hide_title': 0, 
+            'hide_author': 0, 
+            'abstract_word_count': 150, 
+            'cora': 'Article'}]
+        return art
+
+    def get_section_ref(self, toc_section="article", toc_title="title"):
+        return 'ART'
+
+class parseBooleanIssue(parseIssue):
+    def get_volume(self):
+        return False
+
+    def get_issue(self):
+        return self.get_year()
+
+    def get_year(self):
+        return self.issue_url.split("/")[-2]
+
+    def get_editors(self):
+        year = self.get_year()
+        editors = {
+            "2010": ["Alan Kelly", "Graham Allen", "Orla Murphy", "Michelle Nelson"],
+            "2011": ["Alan Kelly", "Graham Allen", "Orla Murphy", "Ruth Ramsay", "Michelle Nelson"],
+            "2012": ["Alan Kelly", "Gordon Dalton", "Dara O'Sullivan", "Janette Walton"],
+            "2014": ["Liam Marnane", "Fergus McAuliffe"],
+            "2015": ["Liam Marnane"]
+        }
+        return editors[year]
+
+    def get_articles_from_toc(self):
+        # nb urls used for dict keys are normalised to lower
+        # good for comparison but the url value should not be taken directly from key
+        articles = {}
+        article_rows = self.soup.select("table.toc tr")
+        for row in article_rows:
+            seq = row.select("td.seq")[0]
+            title = row.select("td.title")[0]
+            title_str = title.get_text()
+            title_str = " ".join(title_str.split()).strip()
+            author = row.select("td.author")[0]
+            if len(author.get_text().strip()) == 0:
+                author_str = "Liam Marnane"
+            else:
+                author_str = author.get_text()
+                author_str = author_str.replace('\n', '').replace('\r', '')
+                author_str = " ".join(author_str.split()).strip()
+                # print(author_str)
+            affiliation = row.select("td.affiliation")[0]
+            affiliation_str = affiliation.get_text()
+            affiliation_str = " ".join(affiliation_str.split()).strip()
+            title_link = title.select("a")[0]
+            url_html = title_link['href']
+            if url_html.startswith("http"):
+                url_html = url_html 
+            else:
+                url_html = "http://{0}{1}".format(self.issue_url.split("/")[-4], url_html)
+
+            seq = url_html.split("/")[-2]
+            article = {
+                "seq": seq,
+                "title": title_str,
+                "authors": author_str,
+                "affiliation": affiliation_str,
+                "url": url_html,
+                "pdf": url_html.replace("/boolean/", "/boolean/pdf/")
+            }
+
+            articles[url_html.lower()] = article
+        return articles
+
+    def get_unique_article_urls(self):
+        all_urls = self.get_article_urls_all_languages()
+        url_dict = {}
+        unique_urls = []
+        for url in all_urls:
+            id = url.split("/")[-2]
+            url_dict[id] = url
+        return url_dict.values()
+
+    def get_issue_galley_path(self):
+        year = self.get_year()
+        issue_galley_path = "http://publish.ucc.ie/boolean/pdf/{}/00/boolean-{}.pdf".format(year, year)
+        return issue_galley_path     
+
+    def get_issue_cover_path(self):
+        year = self.get_year()
+        issue_cover_path = "http://ojs.ucc.ie/public/site/boolean_covers/boolean-{}_border.png".format(year)
+        return issue_cover_path
+
+class parseScenarioIssue(parseIssue):
+    def __init__(self, issue_url):
+        parseIssue.__init__(self, issue_url)
+        self.section_mapping_wb = "scenario_tocs.xlsx"
+
+    def get_issn(self):
+        return "1649-8526"
+
+    def get_volume_no_label(self):
+        vol = self.get_volume()
+        vol = vol.split(" ")[-1]
+        return vol
+
+    def get_volume(self):
+        vol = self.soup.select("span.volume")[0].get_text().strip()
+        return vol
 
     def get_issue(self):
         return self.get_issue_year()["issue"]
@@ -123,17 +295,6 @@ class parseScenarioIssue():
 
         return articles
 
-    def get_article_urls_all_languages(self):
-        # return self.get_articles_from_toc().keys()
-        # note can't use keys as they are normalised
-        urls = []
-        articles = self.get_articles_from_toc()
-        for key in articles:
-            article = articles[key]
-            urls.append(article['url'])
-        return urls
-
-
     def get_unique_article_urls(self):
         all_urls = self.get_article_urls_all_languages()
         url_dict = {}
@@ -167,16 +328,6 @@ class parseScenarioIssue():
             whole_issue_link ="{0}/{1}".format(self.issue_url.rsplit("/", 1)[0], whole_issue_link)
             return whole_issue_link
 
-    def get_issue_galley(self):
-        req = requests.get(self.get_issue_galley_path())
-        if req.status_code != 200:
-            raise Exception("Failed to load issue galley for {0}".format(self.page_url))
-        return req.content        
-
-    def get_encoded_issue_galley(self):
-        b64 = base64.b64encode(self.get_issue_galley()).decode('utf-8')
-        return b64
-
     def get_issue_cover_paths(self):
         paths = []
         year = self.get_year()
@@ -197,26 +348,14 @@ class parseScenarioIssue():
                 return path
         return ""
 
-    def get_issue_cover_filename(self):
-        return self.get_issue_cover_path().split("/")[-1]
-
-    def get_encoded_issue_cover(self):
-        b64 = base64.b64encode(self.get_issue_cover()).decode('utf-8')
-        return b64
-
-    def get_issue_cover(self):
-        req = requests.get(self.issue_cover_path)
-        if req.status_code != 200:
-            raise Exception("Failed to load cover image for {0}".format(self.page_url))
-        return req.content
-
     def get_sections_as_dict(self):
         wb = self.section_mapping_wb
         xl = pd.ExcelFile(wb)
         section_df = xl.parse('section_meta')
+        #print("@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@")
+        #print(section_df.to_dict('records'))
         return section_df.to_dict('records')
     
-
     def get_section_word_count(self, section_ref):
         wb = self.section_mapping_wb
         xl = pd.ExcelFile(wb)
@@ -291,37 +430,27 @@ class parseScenarioIssue():
             print ("Exception: {}".format(e))
             return {}
 
-class parseScenario():
+class parseArticle():
     def __init__(self, url):
-        print("##### {}".format(url))
         self.page_url = url.strip()   
         req = requests.get(self.page_url)
-        print(req.status_code)
         self.page = self.get_page(req)
         self.soup = BeautifulSoup(self.page, 'html.parser')
-        self.meta_tags = self.get_meta_tags()
         self.issue_url = self.get_issue_url()
-        print(self.issue_url)
-        self.issue = parseScenarioIssue(self.issue_url)
+        self.doi_prefix = "10.33178"
+        self.issue = self.get_issue_obj()
         self.title = self.get_title()
         self.doi = self.get_doi()
         self.pages = self.get_pages()
 
+    def get_issue_obj(self):
+        return parseIssue(self.issue_url)
+
     def get_doi(self):
-        base = "10.33178/scenario"
-        vol = self.issue.get_volume_no_label()
-        vol_int = self.issue.get_volume_as_int(vol)
-        issue = int(self.issue.get_issue())
-        art = int(self.page_url.rsplit("/", 2)[1])
-        doi = "{}.{}.{}.{}".format(base, vol_int, issue, art)
-        return doi
+        return ""
 
     def has_doi(self):
-        toc_section = self.get_section()
-        section_ref = self.issue.get_section_ref(toc_section, self.title)
-        non_ojs_meta = self.issue.get_section_meta_for_non_ojs(section_ref)
-        mint_doi = non_ojs_meta["mint_doi"]
-        return mint_doi
+        return False
 
     def get_issue_url(self):
         url = self.page_url.rsplit("/", 3)[0]
@@ -361,20 +490,372 @@ class parseScenario():
                 else:
                     print("Warning: failed to load from wayback: {}".format(wb_url))
 
-        
         self.status_code = 500
         raise Exception("Failed to load html for {0}".format(self.page_url))
         return req.text
 
-    def get_wayback_api_url(self, scenario_url):
-        return "http://archive.org/wayback/available?url={}".format(scenario_url)
 
+    def get_wayback_api_url(self, journal_url):
+        return "http://archive.org/wayback/available?url={}".format(journal_url)
+
+    #def get_pdf(self):
+        #todo
+
+    def get_toc_elements(self):
+        url = self.strip_wayback(self.page_url)
+        toc = self.issue.get_articles_from_toc()[url.lower()]
+        return toc
+
+    def get_start_page(self):
+        return self.pages["start_page"]
+
+    def get_end_page(self):
+        return self.pages["end_page"]
+
+    #todo dry this out. duplicate of xmet.py and above class
+    def is_int(self, val):
+        try: 
+            int(val)
+            return True
+        except ValueError:
+            return False 
+    
+    #todo dry this out. duplicate of xmet.py and above class
+    def get_page_as_int(self, page):
+        if self.is_int(page):
+            return int(page)
+        elif self.is_int(roman.fromRoman(page.upper())):
+            return int(roman.fromRoman(page.upper()))
+        else:
+            return 0
+
+    def get_pdf_page_count(self):
+        # open pdf & get page count
+        pdf_file = io.BytesIO(self.get_pdf())
+        pdf_reader = pyPdf.PdfFileReader(pdf_file)
+        num_pages = int(pdf_reader.numPages)
+        return num_pages
+
+    def get_title_from_toc(self):
+        title = self.get_toc_elements()["title"]
+        title = " ".join(title.split()).strip()
+        if len(title.strip()) == 0:
+            raise Exception("Failed to get title for {}".format(self.page_url))
+        return title
+
+    def get_title(self):
+        return self.get_title_from_toc()
+
+    def get_word_list(self, str):
+        str = " ".join(str.split()).strip()
+        res = re.findall(r'\w+', str)
+        return res       
+
+    def get_word_count(self, str):
+        res = len(self.get_word_list(str))
+        return res
+
+    def get_language(self):
+        lang = self.page_url.split("/")[-1]
+        if lang in ['en', 'de']:
+            return lang
+        else:
+            return 'en'
+
+    def get_pages(self):
+        return {}
+
+    def get_abstract(self):
+        return ""
+
+    def get_citations(self):
+        return []
+
+    def get_encoded_pdf(self):
+        return base64.b64encode(self.get_pdf()).decode('utf-8')
+
+    def get_encoded_html(self):
+        return base64.b64encode(self.get_html().encode('ascii')).decode('utf-8')
+
+    def get_absolute_url(self, frag):
+        if frag.startswith("http"):
+            url = frag
+        elif frag.startswith("/web/"):
+            url ="{0}{1}".format("http://web.archive.org", frag) 
+        else:
+            url ="{0}/{1}".format(self.page_url.rsplit("/", 1)[0], frag)
+        return url
+
+    def strip_wb(self, url):
+        if  "web.archive.org" in url:
+            parts = url.split("//")
+            if len(parts) < 3:
+                orig_url = url
+            else:
+                orig_url = "http://{}".format(parts[2])
+        else: 
+            orig_url = url
+        return orig_url
+
+    def get_html(self):
+        return ""
+
+class parseBoolean(parseArticle):
+    def __init__(self, issue_url):
+        parseArticle.__init__(self, issue_url)
+        self.issue = self.get_issue_obj() 
+        self.title = self.get_title()
+        self.doi = self.get_doi()
+        self.pages = self.get_pages()
+
+    def get_page(self, req):
+        if req.status_code == 200:
+            self.status_code = 200
+            return req.text
+        
+        # try to fetch from wayback
+        wb_urls = [
+            self.get_wayback_api_url(self.page_url), 
+            self.get_wayback_api_url(self.page_url.replace("research.ucc.ie", "publish.ucc.ie"))
+            ]
+        for wb_url in wb_urls:
+            wb_api = requests.get(wb_url)
+            wb_api_resp = wb_api.json()
+            print(wb_api_resp)
+            if wb_api_resp["archived_snapshots"] != {}:
+                wb_url = wb_api_resp["archived_snapshots"]["closest"]["url"]
+                wb_page_req = requests.get(wb_url)
+                if wb_page_req.status_code == 200:
+                    self.status_code = 200
+                    self.page_url = wb_url
+                    return wb_page_req.text
+                else:
+                    print("Warning: failed to load from wayback: {}".format(wb_url))
+
+        self.status_code = 500
+        #raise Exception("Failed to load html for {0}".format(self.page_url))
+        return req.text
+
+    def get_issue_obj(self):
+        return parseBooleanIssue(self.issue_url)
+
+    def url_in_wb(self, url):
+        wb_api_url = self.get_wayback_api_url(url)
+        wb_api_resp = requests.get(wb_api_url).json()
+        if wb_api_resp["archived_snapshots"] != {}:
+            wb_url = wb_api_resp["archived_snapshots"]["closest"]["url"]
+            if wb_api_resp["archived_snapshots"]["closest"]["status"] == "200":
+                return wb_url
+        return False
 
     def get_pdf(self):
-        #form pdf
+        pdf_url = self.page_url.replace("/boolean/", "/boolean/pdf/")
+        pdf_urls = [pdf_url]
+        alt_base = pdf_url.rsplit("/", 3)[0]
+        url_parts = pdf_url.rsplit("/", 5)
+
+        alt_filename = "{0}-{1}-{2}-{3}-{4}.pdf".format(
+            url_parts[-2], #art_id
+            url_parts[-3], #name
+            url_parts[-5], #year
+            url_parts[-4], #issue, ie. 00
+            url_parts[-1]  #lang
+        )
+        alt_pdf_url = "{0}/{1}".format(alt_base, alt_filename)
+        pdf_urls.append(alt_pdf_url)
+
+        poss_urls = copy.deepcopy(pdf_urls)
+        for poss_url in poss_urls:
+            check_wb = self.url_in_wb(poss_url) 
+            if check_wb != False:
+                wb_url = check_wb
+                pdf_urls.append(wb_url)
+
+        alt_base2 = "http://ojs.ucc.ie/public/site/boolean_covers"
+        alt_pdf_url2 = "{0}/{1}".format(alt_base2, alt_filename)
+        pdf_urls.append(alt_pdf_url2)
+
+        for url in pdf_urls:
+            print(url)
+            req = requests.get(url)
+            if req.status_code == 200:
+                return req.content
+
+        raise Exception("Failed to load pdf for {0}".format(self.page_url))
+
+    def get_cite(self):
+        cite = self.soup.select("div.citetext")[0].get_text()
+        cite = " ".join(cite.split()).strip()
+        return cite
+
+    def get_pages(self):
+        pages = {}
+        if self.status_code != 200:
+            return {"start_page": "0", "end_page": "0"}
+
+        cite = self.get_cite()
+        cite = cite.lower().replace(" ", "").replace(".", "")
+        reg = "pp?\d+(-\d+)?"
+        match = re.search(reg, cite)
+        if match:
+            pages_str = match.group(0)
+            pages_str = pages_str.replace("p", "")
+            page_parts = pages_str.split("-")
+            start_page = page_parts[0]
+            pages["start_page"] = start_page
+            if len(page_parts) > 1:
+                end_page = page_parts[1]
+            else:
+                end_page = start_page 
+            pages["end_page"] = end_page
+        else:
+            # raise Exception("Failed to find pages for {}".format(self.page_url))
+            print("WARNING: Failed to find pages for {}".format(self.page_url))
+            return {"start_page": "0", "end_page": "0"}
+        return pages
+
+    def get_abstract(self):
+        abstract = ""
+        section_limit = 150        
+        wc = 0
+        els = self.soup.select('div#content p')
+        if len(els) > 0:
+            el_no = 0
+            while wc < section_limit and el_no < len(els):
+                abstract = "{} {}".format(abstract, els[el_no].get_text())
+                wc = self.get_word_count(abstract)
+                el_no += 1
+
+        if wc > section_limit:
+            word_list = self.get_word_list(abstract)
+            abstract = " ".join(word_list[:section_limit])
+            abstract = "{} ...".format(abstract)
+
+        abstract = " ".join(abstract.split()).strip()
+        return abstract
+
+    def parse_authors(self, authors_str, fallback_author=''):
+        authors = [authors_str]
+        if len(authors) == 0:
+            if fallback_author != '':
+                authors.append(fallback_author)
+        return authors
+  
+    def get_authors_from_toc(self, fallback_author=''):
+        toc = self.get_toc_elements()
+        authors_str = toc["authors"]
+        authors = self.parse_authors(authors_str, fallback_author)
+        return authors
+
+    def get_authors(self, fallback_author=''):
+        return self.get_authors_from_toc(fallback_author)
+
+    def get_html(self):
+        if self.status_code != 200:
+            return ""
+        html_template = """<!DOCTYPE html><html><head>
+                           <link rel="stylesheet" href="../../../../../public/site/boolean_html.css" />
+                           <script src="../../../../../public/site/boolean_html.js" />
+                           </head><body><span /></body></html>"""
+        template = BeautifulSoup(html_template, 'html.parser')
+        header = self.soup.new_tag("div")
+        header["id"] = "header"
+
+
+        title = self.soup.new_tag("h1")
+        title_str = self.soup.select("h1.title")[0].get_text()
+        title["id"] = "title"
+        title.string = title_str
+
+        author = self.soup.new_tag("div")
+        author_str = self.soup.select("h2.author")[0].get_text()
+        author["id"] = "author"
+        author.string = author_str
+
+        affil = self.soup.new_tag("div")
+        affil_str = self.soup.select("h3.affiliation")[0].get_text()
+        affil["id"] = "affiliation"
+        affil.string = affil_str
+
+        doi = self.get_doi()
+        mint_doi = self.has_doi()
+        citation_str = self.get_cite()
+        if len(doi) > 0 and mint_doi == True:
+            citation_str = "{0}, doi:{1}".format(citation_str, doi)
+        citation = self.soup.new_tag("div")
+        citation["id"] = "citation"
+        citation.string = citation_str
+        
+        header.append(title)
+        header.append(author)
+        header.append(affil)
+        header.append(citation)
+
+        content_box = self.soup.select("#content")[0]
+
+        for img in content_box.find_all('img'):
+            if "src" not in img.attrs:
+                continue   
+            img_url = self.get_absolute_url(img["src"])
+            print("########################## {0}".format(img_url))
+            # horrible hack for broken image
+            bad_images = [
+                "http://research.ucc.ie/boolean/2011/00/Murray/35/35-Murray-2011-00-en/media/image3.png"
+            ]
+            if img_url in bad_images:
+                continue
+            image_req = requests.get(img_url)
+            if image_req.status_code != 200:
+                if  "web.archive.org" in img_url:
+                    orig_img_url = "http://{}".format(img_url.split("//")[2])
+                    image_req = requests.get(orig_img_url)
+                    print("retrying image download from original: {}".format(orig_img_url))
+                    if image_req.status_code != 200:
+                        raise Exception("Unable to download image {0} from research.ucc.ie or from {1}".format(img_url, self.page_url))
+                else:        
+                    raise Exception("Unable to download image {0} for page {1}".format(img_url, self.page_url))
+            image_data = image_req.content
+
+            mimetype = mimetypes.guess_type(img_url)[0]
+            img['src'] = "data:%s;base64,%s" % (mimetype, base64.b64encode(image_data).decode('utf-8'))
+
+
+        body = template.find("body")
+        body.append(header)
+        body.append(content_box)
+        return template
+
+class parseScenario(parseArticle):
+    def __init__(self, issue_url):
+        parseArticle.__init__(self, issue_url)
+        self.meta_tags = self.get_meta_tags()
+        self.issue = self.get_issue_obj()
+        self.title = self.get_title()
+        self.doi = self.get_doi()
+        self.pages = self.get_pages()
+
+    def get_issue_obj(self):
+        return parseScenarioIssue(self.issue_url)
+
+    def get_doi(self):
+        base = "{}/scenario".format(self.doi_prefix)
+        vol = self.issue.get_volume_no_label()
+        vol_int = self.issue.get_volume_as_int(vol)
+        issue = int(self.issue.get_issue())
+        art = int(self.page_url.rsplit("/", 2)[1])
+        doi = "{}.{}.{}.{}".format(base, vol_int, issue, art)
+        return doi
+
+    def has_doi(self):
+        toc_section = self.get_section()
+        section_ref = self.issue.get_section_ref(toc_section, self.title)
+        non_ojs_meta = self.issue.get_section_meta_for_non_ojs(section_ref)
+        mint_doi = non_ojs_meta["mint_doi"]
+        return mint_doi
+        
+    def get_pdf(self):
         form_data = {}
         f = self.soup.select("form")
-        #print(self.page)
         form = self.soup.select("div.print > form")[0]
         for child in form.descendants:
             if "name" in child.attrs:
@@ -414,37 +895,9 @@ class parseScenario():
             else:
                 return ""
 
-    def get_toc_elements(self):
-        url = self.strip_wayback(self.page_url)
-        toc = self.issue.get_articles_from_toc()[url.lower()]
-        return toc
-
     def get_start_page_from_toc(self):
         toc = self.get_toc_elements()
         return toc["start_page"]
-
-    def get_start_page(self):
-        return self.pages["start_page"]
-
-    def get_end_page(self):
-        return self.pages["end_page"]
-
-    #todo dry this out. duplicate of xmet.py and above class
-    def is_int(self, val):
-        try: 
-            int(val)
-            return True
-        except ValueError:
-            return False 
-    
-    #todo dry this out. duplicate of xmet.py and above class
-    def get_page_as_int(self, page):
-        if self.is_int(page):
-            return int(page)
-        elif self.is_int(roman.fromRoman(page.upper())):
-            return int(roman.fromRoman(page.upper()))
-        else:
-            return 0
 
     def get_start_page_from_ojs2(self):
         art_id = int(self.page_url.rsplit("/", 2)[1])
@@ -464,13 +917,6 @@ class parseScenario():
         else:
             print("Failed to find key {} in issue pages".format(key))
             return False 
-
-    def get_pdf_page_count(self):
-        # open pdf & get page count
-        pdf_file = io.BytesIO(self.get_pdf())
-        pdf_reader = pyPdf.PdfFileReader(pdf_file)
-        num_pages = int(pdf_reader.numPages)
-        return num_pages
 
     def get_pages(self):
         pages = {}
@@ -537,16 +983,6 @@ class parseScenario():
         title = re.sub(doi_reg, "", title)
 
         return title   
-
-    def get_title_from_toc(self):
-        title = self.get_toc_elements()["title"]
-        title = " ".join(title.split()).strip()
-        if len(title.strip()) == 0:
-            raise Exception("Failed to get title for {}".format(self.page_url))
-        return title
-
-    def get_title(self):
-        return self.get_title_from_toc()
    
     def get_section(self):
         section = self.get_toc_elements()["section"]
@@ -570,7 +1006,6 @@ class parseScenario():
             if fallback_author != '':
                 authors.append(fallback_author)
         return authors
-
 
     def parse_authors(self, authors_str, fallback_author=''):
      #known patterns
@@ -654,20 +1089,10 @@ class parseScenario():
     def get_authors(self, fallback_author=''):
         return self.get_authors_from_toc(fallback_author)
 
-
     def get_toc_section(self):
         toc = self.get_toc_elements()
         section = toc["section"]
         return section
-
-    def get_word_list(self, str):
-        str = " ".join(str.split()).strip()
-        res = re.findall(r'\w+', str)
-        return res       
-
-    def get_word_count(self, str):
-        res = len(self.get_word_list(str))
-        return res
 
     def get_abstract(self):
         els = self.soup.select('div.abstract p')
@@ -701,13 +1126,6 @@ class parseScenario():
         abstract = " ".join(abstract.split()).strip()
         return abstract
 
-    def get_language(self):
-        lang = self.page_url.split("/")[-1]
-        if lang in ['en', 'de']:
-            return lang
-        else:
-            return 'en'
-
     def get_citations(self):
         content_box = self.soup.select("div.content")[0]
         citations = []
@@ -735,41 +1153,10 @@ class parseScenario():
                     break
         return citations
 
-    #keywords
-    #type
-
-    def get_encoded_pdf(self):
-        return base64.b64encode(self.get_pdf()).decode('utf-8')
-
-    def get_encoded_html(self):
-        return base64.b64encode(self.get_html().encode('ascii')).decode('utf-8')
-
-    def get_absolute_url(self, frag):
-        if frag.startswith("http"):
-            url = frag
-        elif frag.startswith("/web/"):
-            url ="{0}{1}".format("http://web.archive.org", frag) 
-        else:
-            url ="{0}/{1}".format(self.page_url.rsplit("/", 1)[0], frag)
-        return url
-
-    def strip_wb(self, url):
-        if  "web.archive.org" in url:
-            parts = url.split("//")
-            if len(parts) < 3:
-                orig_url = url
-            else:
-                orig_url = "http://{}".format(parts[2])
-        else: 
-            orig_url = url
-        return orig_url
-
     def get_html_links(self):
         links = {}
         src_types = ["embed", "source", "track"]
-        #embed src
-        #source src
-        #track src
+
         content_box = self.soup.select("div.content")[0]
         for a in content_box.find_all('a'):
             if "href" in a.attrs:
@@ -786,8 +1173,6 @@ class parseScenario():
                     url = self.strip_wb(url)
                     links[url] = {"link_type": "src", "page_url": self.page_url, "text": a.get_text(), "url": url}
         return links
-
-
 
     def get_html(self):
         html_template = """<!DOCTYPE html><html><head>

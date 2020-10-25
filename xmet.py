@@ -158,6 +158,26 @@ class genericJob():
 
         return volume_metadata
 
+    def get_citations(self, art_doi):
+        citations = {}
+        article_doi_series = self.citations_df['Article DOI '].str.strip()
+        art_citations_df = self.citations_df.loc[article_doi_series == art_doi]
+        if len(art_citations_df.index) == 0:
+            art_citations_df = self.citations_df.loc[article_doi_series == self.get_doi_uri(art_doi)]
+
+        if len(art_citations_df.index) == 0:
+            #todo proper logging
+            print("### WARNING: no citations found for {}".format(art_doi))
+            return citations
+
+        art_citations_df = art_citations_df.reset_index().fillna('')    
+
+        for idx, row in art_citations_df.iterrows():
+            citation = self.get_citation(row, art_doi, idx + 1) 
+            citations.update(citation)
+        
+        return citations
+
 class CrossRefJob(genericJob):
     def get_root(self):
         root = {
@@ -335,27 +355,6 @@ class CrossRefJob(genericJob):
         }
         return citation
 
-
-    def get_citations(self, art_doi):
-        citations = {}
-        article_doi_series = self.citations_df['Article DOI '].str.strip()
-        art_citations_df = self.citations_df.loc[article_doi_series == art_doi]
-        if len(art_citations_df.index) == 0:
-            art_citations_df = self.citations_df.loc[article_doi_series == self.get_doi_uri(art_doi)]
-
-        if len(art_citations_df.index) == 0:
-            #todo proper logging
-            print("### WARNING: no citations found for {}".format(art_doi))
-            return citations
-
-        art_citations_df = art_citations_df.reset_index().fillna('')    
-
-        for idx, row in art_citations_df.iterrows():
-            citation = self.get_citation(row, art_doi, idx + 1) 
-            citations.update(citation)
-        
-        return citations
-
     def get_abstract(self, abstract, language):       
         el = {
             "@attrs": {
@@ -470,6 +469,7 @@ class DspaceJob(genericJob):
         given_names_array = all_given_names.split(" ")
         initials = ""
         for idx, given_name in enumerate(given_names_array):
+            print(given_name)
             if idx == 0:
                 initials = "{}.".format(given_name[0])
             else:
@@ -700,7 +700,6 @@ class DspaceJob(genericJob):
 
 
 class OjsJob(genericJob):
-    
     def get_contributors(self, lookup, role):
         if lookup == '':
             return {}
@@ -760,6 +759,8 @@ class OjsJob(genericJob):
             contributors.update({"person_name-{}-{}-{}".format(idx, val, role): person_name})
         return contributors
 
+
+
     def get_pub_date(self, date, media_type="online"):
         date_parts = self.get_pub_date_parts(date)
         pub_date = {
@@ -787,258 +788,8 @@ class OjsJob(genericJob):
         citation = {
             "citation-{}".format(citation_key): cite
         }
-        print(citation)
+        #print(citation)
         return citation
-
-
-    def get_citations(self, art_doi):
-        citations = {}
-        article_doi_series = self.citations_df['Article DOI '].str.strip()
-        art_citations_df = self.citations_df.loc[article_doi_series == art_doi]
-        if len(art_citations_df.index) == 0:
-            art_citations_df = self.citations_df.loc[article_doi_series == self.get_doi_uri(art_doi)]
-
-        if len(art_citations_df.index) == 0:
-            #todo proper logging
-            print("### WARNING: no citations found for {}".format(art_doi))
-            return citations
-
-        art_citations_df = art_citations_df.reset_index().fillna('')    
-
-        for idx, row in art_citations_df.iterrows():
-            citation = self.get_citation(row, art_doi, idx + 1) 
-            citations.update(citation)
-        print(citations)
-        return citations
-
-
-    def get_article(self, raw_row):
-        row = raw_row.fillna('')
-        contributors = {}
-        titles = {
-            "title": row["title"].strip()
-        }
-        if row["subtitle"]:
-            titles["subtitle"] = row["subtitle"]
-       
-        if row["authors"]: 
-            contributors = self.get_contributors(row["authors"], "author")
-        
-        if row["editors"]:
-            editors = self.get_contributors(row["editors"], "editor")
-            contributors.update(editors)
-
-        publication_date = self.get_pub_date(self.publication_date)
-        pub_date_str = self.get_pub_date_string(self.publication_date)
-        doi = self.get_valid_doi(row["doi"])
-        url_path = self.get_path_from_doi(doi) 
-        url = row["url"].strip()
-        issue_url = url.rsplit("/", 3)[0]
-        issue = scenario.parseScenarioIssue(issue_url)
-        toc = issue.get_articles_from_toc()
-        toc_row = toc[url.lower()]
-        toc_row_de = {}
-        url_parts = url.split("/")
-        art_no = url_parts[-2]
-        issue_no = url_parts[-4]
-        issue_year = url_parts[-5]
-        filename_base = "{}-{}-{}".format(issue_year, issue_no, art_no)
-
-        title = row["title"].strip()
-        abstract = row["abstract"]
-        title_de = ""
-        abstract_de = ""
-        secondary_language = False
-        secondary_language_url = ""
-        if url.endswith("en"):
-            language = "en"
-            de_url = url[:-2] + "de"
-            de_url_lower = de_url.lower()
-            if "/foreword/" in url.lower():
-                de_url_lower = de_url_lower.replace("/foreword/", "/vorwort/")
-            if de_url_lower in toc.keys():
-                de_article_from_toc = toc[de_url_lower]
-                de_url = de_article_from_toc["url"]
-                toc_row_de = toc[de_url_lower]
-                title_de = toc_row_de["title"]
-                secondary_language_url = de_url
-                scen_de = scenario.parseScenario(secondary_language_url)
-                abstract_de = scen_de.get_abstract()
-                
-                secondary_language = True
-                # title de
-                # abstract de
-                # pdf file de
-                # html file de
-        else:
-            language = "de"
-            title_de = title
-            abstract_de = abstract
-    
-        toc_section = toc_row['section']
-        #print("~~~~~~############~~~~{}".format(issue.get_section_ref(toc_section)))
-        #try: 
-        #    language = row["language"]
-        #except:
-        #    language = "en"
-        
-        # todo article_seq = 
-        article_id = "journal_article-{}".format(doi)
-        article_no = re.sub(r"\D", "", doi.split("/")[1])
-        article_seq = doi.split("/")[1].split(".")[-1]
-        pages = str(row["first_page"])
-        if len(str(row["last_page"]).strip()) > 0:
-            pages = "{0}-{1}".format(row["first_page"], row["last_page"])
-
-        article =  {
-            article_id: {
-                "@attrs": {
-                    #"xmlns": "http://pkp.sfu.ca",
-                    "xmlns:xsi": "http://www.w3.org/2001/XMLSchema-instance",
-                    "date_submitted": pub_date_str, 
-                    "status": "3",
-                    "submission_progress":"0",
-                    "current_publication_id": article_no,
-                    "stage":"production",
-                    "xsi:schemaLocation": "http://pkp.sfu.ca native.xsd"
-                },
-                "@name": "article",
-                "id":{
-                    "@attrs": {"type":"internal", "advice":"ignore"},
-                    "@value": article_no
-                },
-                "pdf_file_en": {},
-                "html_file_en": {},
-                "pdf_file_de": {},
-                "html_file_de": {},
-                "publication": {
-                    "@attrs": {
-                        "xmlns:xsi": "http://www.w3.org/2001/XMLSchema-instance",
-                        "locale":"en_US",
-                        "version": "1",
-                        "status": "3",
-                        #"primary_contact_id"
-                        "url_path":url_path,
-                        "seq":article_seq,
-                        "date_published": pub_date_str,
-                        "section_ref": issue.get_section_ref(toc_section, title),
-                        #"access_status"
-                        "xsi:schemaLocation": "http://pkp.sfu.ca native.xsd"
-                    },
-                    "id":{
-                        "@attrs": {"type":"internal", "advice":"ignore"},
-                        "@value": article_no
-                    },
-                    "doi":{
-                        "@attrs": {"type":"doi", "advice":"update"},
-                        "@name": "id",
-                        "@value": doi
-                    },
-                    "title" : {
-                        "@attrs": {
-                            "locale": 'en_US'
-                        },
-                        "@value": title
-                    },
-                    "title_de" : {
-                        "@attrs": {
-                            "locale": 'de_DE'
-                        },
-                        "@name": "title",
-                        "@value":title_de.strip()
-                    },
-                    #prefix
-                    "subtitle":"",
-                    "abstract": {
-                        "@attrs": {
-                            "locale": 'en_US'
-                        },
-                        "@value":abstract
-                    },
-                    "abstract_de" : {
-                        "@attrs": {
-                            "locale": 'de_DE'
-                        },
-                        "@name": "abstract",
-                        "@value":abstract_de
-                    },
-                    #rights
-                    "licenseUrl": "http://creativecommons.org/licenses/by-nc-nd/4.0",
-                    "copyrightHolder": "the author(s)",
-                    "copyrightYear": self.get_pub_year(self.publication_date),
-                    "keywords": {},
-                    "authors": self.get_contributors(row["authors"], "author"),
-                    "pdf_galley_en": {},
-                    "html_galley_en": {},
-                    "pdf_galley_de": {},
-                    "html_galley_de": {},
-                    #"issue_identification": self.get_issue_identification(),
-                    "pages": pages,   
-                    #covers
-                    "citations": self.get_citations(row['doi'])
-                }
-            } 
-        }
-
-        if row["subtitle"]:
-            article[article_id]["publication"]["subtitle"] = row["subtitle"]
-
-        keywords = {}
-        if len(row["keywords"]) > 0:
-            keywords = self.get_keywords(row, "keywords", 'en')
-        elif len(row["keywords_de"]) > 0:
-            keywords = self.get_keywords(row, "keywords_de", 'de')
-            languages = self.issue_languages.split("||")
-
-                            
-        if len(keywords) > 0 :
-            article[article_id]["publication"]["keywords"] = keywords
-        else:
-            del article[article_id]["publication"]["keywords"]
-
-        
-        scen = scenario.parseScenario(row["url"])
-
-        mint_doi = scen.has_doi()
-        if mint_doi == False:
-            del article[article_id]["publication"]["doi"]
-
-        pdf_b64 = scen.get_encoded_pdf()
-        pdf_id = str(int(article_no) + 100) # todo
-        article[article_id]["pdf_file_{0}".format(language)] = self.get_submission_file("pdf", pdf_id, pdf_b64, filename_base, language)
-        article[article_id]["publication"]["pdf_galley_{0}".format(language)] = self.get_galley("pdf", pdf_id, language)
-        html_b64 = scen.get_encoded_html()
-        html_id = str(int(article_no) + 200) # todo
-        article[article_id]["html_file_{0}".format(language)] = self.get_submission_file("html", html_id, html_b64, filename_base, language)
-        article[article_id]["publication"]["html_galley_{0}".format(language)] = self.get_galley("html", html_id, language)
-
-        if secondary_language == True:
-            scen = scenario.parseScenario(secondary_language_url)
-            pdf_b64 = scen.get_encoded_pdf()
-            pdf_id = str(int(article_no) + 1000) # todo
-            other_language = "de"
-            article[article_id]["pdf_file_{0}".format(other_language)] = self.get_submission_file("pdf", pdf_id, pdf_b64, filename_base, other_language)
-            article[article_id]["publication"]["pdf_galley_{0}".format(other_language)] = self.get_galley("pdf", pdf_id, other_language)
-            html_b64 = scen.get_encoded_html()
-            html_id = str(int(article_no) + 2000) # todo
-            article[article_id]["html_file_{0}".format(other_language)] = self.get_submission_file("html", html_id, html_b64, filename_base, other_language)
-            article[article_id]["publication"]["html_galley_{0}".format(other_language)] = self.get_galley("html", html_id, other_language)
-
-        if language == "en":
-            if secondary_language == False:
-                del article[article_id]["pdf_file_de"]
-                del article[article_id]["publication"]["pdf_galley_de"]
-                del article[article_id]["html_file_de"]
-                del article[article_id]["publication"]["html_galley_de"]
-        else:
-            del article[article_id]["pdf_file_en"]
-            del article[article_id]["publication"]["pdf_galley_en"]
-            del article[article_id]["html_file_en"]
-            del article[article_id]["publication"]["html_galley_en"]            
-
-        #self.write_art(article)
-        #print("returning article")
-        return article
 
 
     def get_submission_file(self, type, id, enc_data, filename_base, lang="en"):
@@ -1150,11 +901,9 @@ class OjsJob(genericJob):
             articles.update(article)
         return articles
  
-
     def get_pub_year(self, date):
-            date_parts = self.get_pub_date_parts(date)
-            return date_parts["year"]
-
+        date_parts = self.get_pub_date_parts(date)
+        return date_parts["year"]
 
     def is_int(self, val):
         try: 
@@ -1195,6 +944,7 @@ class OjsJob(genericJob):
             }
 
         volume_metadata = self.get_journal_volume()
+        vol_roman = False
         if len(volume_metadata.keys()) > 0:
             vol = self.get_valid_vol_number(self.get_journal_volume()["volume"])
             if vol != "0":
@@ -1222,15 +972,51 @@ class OjsJob(genericJob):
     def get_path_from_doi(self, doi):
         return doi.split("/")[1].replace(".", "-")
 
-    def get_journal_issue(self):
-        issue_identification = self.get_issue_identification()
-        num_pad = issue_identification["number"].rjust(2, '0')
-        num = str(int(num_pad))
-        year = issue_identification["year"]
-        scen_issue_path = "http://research.ucc.ie/scenario/{0}/{1}".format(year, num_pad)
-        scen_issue = scenario.parseScenarioIssue(scen_issue_path)
 
-        
+    def get_sections(self, sections_data):
+        sections = {}
+        return sections
+
+    def get_root(self):
+        root = {
+            "issues": {
+                "@attrs": {
+                    "xmlns": "http://pkp.sfu.ca",
+                    "xmlns:xsi": "http://www.w3.org/2001/XMLSchema-instance",
+                    "xsi:schemaLocation": "http://pkp.sfu.ca native.xsd"
+                }
+            }
+        }
+        return root
+
+    def tree_traverse(self, tree):
+        for k, v  in tree.items():
+            if str(type(v)) == "<class 'int'>":
+                print("{} -- {}".format(k, v))
+            elif isinstance(v, dict):
+                found = self.tree_traverse(v) 
+                if found is not None:  # check if recursive call found it
+                    print(found)
+                    return found
+
+    def generate(self):
+        myDict = self.get_journal_issue()
+
+        output_path = self.path.replace(".xlsx", "_ojs.xml")
+        f = open(output_path, "w", encoding='utf-8')
+        print(myDict["issue"]["date_published"])
+        found = self.tree_traverse(myDict)
+        f.write(dict2xml(myDict))
+        f.close()
+
+    def write_art(self, article):
+        output_path = self.path.replace(".xlsx", "_ojs_art.xml")
+        f = open(output_path, "w", encoding='utf-8')
+        f.write(dict2xml(article))
+        f.close()
+
+    def get_journal_issue(self):
+        issue_obj = self.get_issue()
         doi_path = self.get_path_from_doi(self.issue_doi) 
         journal_issue = {
             "issue": {
@@ -1254,10 +1040,10 @@ class OjsJob(genericJob):
                     "@value": self.issue_doi
                 },
                 "description": "",
-                "issue_identification": issue_identification,
+                "issue_identification": self.get_issue_identification(),
                 "date_published": self.get_pub_date_string(self.publication_date), 
                 "last_modified": datetime.datetime.now().strftime("%Y-%m-%d"),
-                "sections": self.get_sections(scen_issue.get_sections_as_dict()),
+                "sections": self.get_sections(issue_obj.get_sections_as_dict()),
                 "covers": {},
                 "issue_galleys": {
                     "@attrs": {
@@ -1278,7 +1064,7 @@ class OjsJob(genericJob):
                                 "@attrs" : {
                                     "encoding": "base64"
                                 },
-                                "@value" : scen_issue.get_encoded_issue_galley()
+                                "@value" : issue_obj.get_encoded_issue_galley()
                             }       
                         }
                     }
@@ -1288,16 +1074,16 @@ class OjsJob(genericJob):
         }
 
         issue_cover = {}
-        if scen_issue.issue_cover_path != "":
+        if issue_obj.issue_cover_path != "":
             issue_cover = {
                 "cover": {
-                    "cover_image": scen_issue.get_issue_cover_filename(),
+                    "cover_image": issue_obj.get_issue_cover_filename(),
                     "cover_image_alt_text": "Issue Cover",
                     "embed": {
                         "@attrs" : {
                             "encoding": "base64"
                         },
-                        "@value" : scen_issue.get_encoded_issue_cover()
+                        "@value" : issue_obj.get_encoded_issue_cover()
                     }
                 }
             }
@@ -1306,6 +1092,246 @@ class OjsJob(genericJob):
             del journal_issue["issue"]["covers"]
 
         return journal_issue
+
+    def get_article(self, raw_row):
+        row = raw_row.fillna('')
+        contributors = {}
+        titles = {
+            "title": row["title"].strip()
+        }
+        if row["subtitle"]:
+            titles["subtitle"] = row["subtitle"]
+       
+        if row["authors"]: 
+            contributors = self.get_contributors(row["authors"], "author")
+        
+        if row["editors"]:
+            editors = self.get_contributors(row["editors"], "editor")
+            contributors.update(editors)
+
+        publication_date = self.get_pub_date(self.publication_date)
+        pub_date_str = self.get_pub_date_string(self.publication_date)
+        doi = self.get_valid_doi(row["doi"])
+        url_path = self.get_path_from_doi(doi) 
+        url = row["url"].strip()
+
+        #issue_url = url.rsplit("/", 3)[0]
+        issue = self.get_issue() # scenario.parseScenarioIssue(issue_url)
+
+        toc = issue.get_articles_from_toc()
+        toc_row = toc[url.lower()]
+        toc_row_de = {}
+
+        # article url patter consistent for 
+        # both scenario and boolean
+        url_parts = url.split("/")
+        art_no = url_parts[-2]
+        issue_no = url_parts[-4]
+        issue_year = url_parts[-5]
+
+        filename_base = "{}-{}-{}".format(issue_year, issue_no, art_no)
+
+        title = row["title"].strip()
+        abstract = row["abstract"]
+        title_de = ""
+        abstract_de = ""
+
+        # only applies to scenario but does no harm for boolean     
+        secondary_language = False
+        secondary_language_url = ""
+        if url.endswith("en"):
+            language = "en"
+            de_url = url[:-2] + "de"
+            de_url_lower = de_url.lower()
+            if "/foreword/" in url.lower():
+                de_url_lower = de_url_lower.replace("/foreword/", "/vorwort/")
+            if de_url_lower in toc.keys():
+                de_article_from_toc = toc[de_url_lower]
+                de_url = de_article_from_toc["url"]
+                toc_row_de = toc[de_url_lower]
+                title_de = toc_row_de["title"]
+                secondary_language_url = de_url
+                scen_de = scenario.parseScenario(secondary_language_url)
+                abstract_de = scen_de.get_abstract()
+                
+                secondary_language = True
+        else:
+            language = "de"
+            title_de = title
+            abstract_de = abstract
+    
+        if 'section' in toc_row:
+            toc_section = toc_row['section'] 
+        else:
+            toc_section = "article"
+        section_ref = issue.get_section_ref(toc_section, title)
+        
+        article_id = "journal_article-{}".format(doi)
+        article_no = self.get_article_no(doi) #re.sub(r"\D", "", doi.split("/")[1])
+        article_seq = str(int(art_no)) # doi.split("/")[1].split(".")[-1]
+
+        pages = str(row["first_page"])
+        if len(str(row["last_page"]).strip()) > 0:
+            pages = "{0}-{1}".format(row["first_page"], row["last_page"])
+
+        article =  {
+            article_id: {
+                "@attrs": {
+                    #"xmlns": "http://pkp.sfu.ca",
+                    "xmlns:xsi": "http://www.w3.org/2001/XMLSchema-instance",
+                    "date_submitted": pub_date_str, 
+                    "status": "3",
+                    "submission_progress":"0",
+                    "current_publication_id": article_no,
+                    "stage":"production",
+                    "xsi:schemaLocation": "http://pkp.sfu.ca native.xsd"
+                },
+                "@name": "article",
+                "id":{
+                    "@attrs": {"type":"internal", "advice":"ignore"},
+                    "@value": article_no
+                },
+                "pdf_file_en": {},
+                "html_file_en": {},
+                "pdf_file_de": {},
+                "html_file_de": {},
+                "publication": {
+                    "@attrs": {
+                        "xmlns:xsi": "http://www.w3.org/2001/XMLSchema-instance",
+                        "locale":"en_US",
+                        "version": "1",
+                        "status": "3",
+                        #"primary_contact_id"
+                        "url_path":url_path,
+                        "seq":article_seq,
+                        "date_published": pub_date_str,
+                        "section_ref": section_ref,
+                        #"access_status"
+                        "xsi:schemaLocation": "http://pkp.sfu.ca native.xsd"
+                    },
+                    "id":{
+                        "@attrs": {"type":"internal", "advice":"ignore"},
+                        "@value": article_no
+                    },
+                    "doi":{
+                        "@attrs": {"type":"doi", "advice":"update"},
+                        "@name": "id",
+                        "@value": doi
+                    },
+                    "title" : {
+                        "@attrs": {
+                            "locale": 'en_US'
+                        },
+                        "@value": title
+                    },
+                    "title_de" : {
+                        "@attrs": {
+                            "locale": 'de_DE'
+                        },
+                        "@name": "title",
+                        "@value":title_de.strip()
+                    },
+                    #prefix
+                    "subtitle":"",
+                    "abstract": {
+                        "@attrs": {
+                            "locale": 'en_US'
+                        },
+                        "@value":abstract
+                    },
+                    "abstract_de" : {
+                        "@attrs": {
+                            "locale": 'de_DE'
+                        },
+                        "@name": "abstract",
+                        "@value":abstract_de
+                    },
+                    #rights
+                    "licenseUrl": "http://creativecommons.org/licenses/by-nc-nd/4.0",
+                    "copyrightHolder": "the author(s)",
+                    "copyrightYear": self.get_pub_year(self.publication_date),
+                    "keywords": {},
+                    "authors": self.get_contributors(row["authors"], "author"),
+                    "pdf_galley_en": {},
+                    "html_galley_en": {},
+                    "pdf_galley_de": {},
+                    "html_galley_de": {},
+                    #"issue_identification": self.get_issue_identification(),
+                    "pages": pages,   
+                    #covers
+                    "citations": self.get_citations(row['doi'])
+                }
+            } 
+        }
+
+        if row["subtitle"]:
+            article[article_id]["publication"]["subtitle"] = row["subtitle"]
+
+        keywords = {}
+        if len(row["keywords"]) > 0:
+            keywords = self.get_keywords(row, "keywords", 'en')
+        elif len(row["keywords_de"]) > 0:
+            keywords = self.get_keywords(row, "keywords_de", 'de')
+            languages = self.issue_languages.split("||")
+
+                            
+        if len(keywords) > 0 :
+            article[article_id]["publication"]["keywords"] = keywords
+        else:
+            del article[article_id]["publication"]["keywords"]
+
+        # check class
+        #scen = scenario.parseScenario(row["url"])
+        art_obj = self.get_article_obj(row["url"])
+
+        mint_doi = art_obj.has_doi()
+        if mint_doi == False:
+            del article[article_id]["publication"]["doi"]
+
+        pdf_b64 = art_obj.get_encoded_pdf()
+        pdf_id = str(int(article_no) + 100) # todo
+        article[article_id]["pdf_file_{0}".format(language)] = self.get_submission_file("pdf", pdf_id, pdf_b64, filename_base, language)
+        article[article_id]["publication"]["pdf_galley_{0}".format(language)] = self.get_galley("pdf", pdf_id, language)
+        html_b64 = art_obj.get_encoded_html()
+        html_id = str(int(article_no) + 200) # todo
+        article[article_id]["html_file_{0}".format(language)] = self.get_submission_file("html", html_id, html_b64, filename_base, language)
+        article[article_id]["publication"]["html_galley_{0}".format(language)] = self.get_galley("html", html_id, language)
+
+        if secondary_language == True:
+            #scen = scenario.parseScenario(secondary_language_url)
+            art_obj_de = self.get_article_obj(secondary_language_url)
+            pdf_b64 = art_obj_de.get_encoded_pdf()
+            pdf_id = str(int(article_no) + 1000) # todo
+            other_language = "de"
+            article[article_id]["pdf_file_{0}".format(other_language)] = self.get_submission_file("pdf", pdf_id, pdf_b64, filename_base, other_language)
+            article[article_id]["publication"]["pdf_galley_{0}".format(other_language)] = self.get_galley("pdf", pdf_id, other_language)
+            html_b64 = art_obj_de.get_encoded_html()
+            html_id = str(int(article_no) + 2000) # todo
+            article[article_id]["html_file_{0}".format(other_language)] = self.get_submission_file("html", html_id, html_b64, filename_base, other_language)
+            article[article_id]["publication"]["html_galley_{0}".format(other_language)] = self.get_galley("html", html_id, other_language)
+
+        if language == "en":
+            if secondary_language == False:
+                del article[article_id]["pdf_file_de"]
+                del article[article_id]["publication"]["pdf_galley_de"]
+                del article[article_id]["html_file_de"]
+                del article[article_id]["publication"]["html_galley_de"]
+        else:
+            del article[article_id]["pdf_file_en"]
+            del article[article_id]["publication"]["pdf_galley_en"]
+            del article[article_id]["html_file_en"]
+            del article[article_id]["publication"]["html_galley_en"]            
+
+        if art_obj.status_code != 200:
+            del article[article_id]["html_file_en"]
+            del article[article_id]["publication"]["html_galley_en"]
+
+        if secondary_language == True:
+            if art_obj_de.status_code != 200:
+                del article[article_id]["html_file_de"]
+                del article[article_id]["publication"]["html_galley_de"]                        
+
+        return article
 
     def get_sections(self, sections_data):
         sections = {}
@@ -1355,55 +1381,65 @@ class OjsJob(genericJob):
                     },
                 }
             sections["section_{}".format(ref)] = section_details
-        #print("~~~~~~############~~~~{}".format(sections))
         return sections
 
+class OjsBooleanJob(OjsJob):
 
-    def get_root(self):
-        root = {
-            "issues": {
-                "@attrs": {
-                    "xmlns": "http://pkp.sfu.ca",
-                    "xmlns:xsi": "http://www.w3.org/2001/XMLSchema-instance",
-                    "xsi:schemaLocation": "http://pkp.sfu.ca native.xsd"
-                }
-            }
+    def get_article_no(self, doi):
+        year = doi.split(".")[-2]
+        art_id = int(doi.split(".")[-1])
+        lookup = {
+            "2010": 100,
+            "2011": 200,
+            "2012": 300,
+            "2013": 400,
+            "2014": 500,
+            "2015": 600,
         }
-        return root
+        art_no = lookup[year] + art_id
+        return str(art_no) 
 
-    def tree_traverse(self, tree):
-        for k, v  in tree.items():
-            if str(type(v)) == "<class 'int'>":
-                print("{} -- {}".format(k, v))
-            elif isinstance(v, dict):
-                found = self.tree_traverse(v) 
-                if found is not None:  # check if recursive call found it
-                    print(found)
-                    return found
+    def get_issue_path(self):
+        issue_identification = self.get_issue_identification()
+        year = issue_identification["year"]
+        issue_path = "http://research.ucc.ie/boolean/{0}/00".format(year)
+        return issue_path 
 
-    def generate(self):
-        #myDict = self.get_root()
-        myDict = self.get_journal_issue()
-        #print(myDict)
-        #myDict["issues"].update(self.get_journal_issue())
-        
-        #myDict["issues"]["issue"] = self.get_journal_issue()
-        #myDict["articles"] = self.get_articles()
+    def get_issue(self):
+        issue_path = self.get_issue_path()
+        issue = scenario.parseBooleanIssue(issue_path)
+        return issue
 
-        output_path = self.path.replace(".xlsx", "_ojs.xml")
-        f = open(output_path, "w", encoding='utf-8')
-        print(myDict["issue"]["date_published"])
-        found = self.tree_traverse(myDict)
-        f.write(dict2xml(myDict))
-        #f.write(str(myDict))
-        f.close()
+    def get_article_obj(self, url):
+        art_obj = scenario.parseBoolean(url)
+        return art_obj
 
-    def write_art(self, article):
-        output_path = self.path.replace(".xlsx", "_ojs_art.xml")
-        f = open(output_path, "w", encoding='utf-8')
-        f.write(dict2xml(article))
-        #f.write(str(myDict))
-        f.close()
+class OjsScenarioJob(OjsJob):
+
+    def get_article_no(self, doi): 
+        article_no = re.sub(r"\D", "", doi.split("/")[1])
+        return article_no
+
+    def get_issue_path(self):
+        issue_identification = self.get_issue_identification()
+        num_pad = issue_identification["number"].rjust(2, '0')
+        num = str(int(num_pad))
+        year = issue_identification["year"]
+        issue_path = "http://research.ucc.ie/scenario/{0}/{1}".format(year, num_pad)
+        return issue_path 
+
+    def get_issue(self):
+        issue_path = self.get_issue_path()
+        issue = scenario.parseScenarioIssue(issue_path)
+        return issue
+
+    def get_article_obj(self, url):
+        art_obj = scenario.parseScenario(url)
+        return art_obj
+
+
+
+
 
 
 
