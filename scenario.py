@@ -549,8 +549,8 @@ class parseArticle():
     def get_word_list(self, str):
         str = " ".join(str.split()).strip()
         #res = re.findall(r'\w+', str)
-        res.split( )
-        return res       
+        res = str.split(" ")
+        return res      
 
     def get_word_count(self, str):
         res = len(self.get_word_list(str))

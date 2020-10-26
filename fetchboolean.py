@@ -23,8 +23,9 @@ class fetchUtils():
         str = unidecode(str).strip()
         return str
 
-    def get_contibs(self, contribs):
+    def get_contibs(self, contribs, affiliation = "University College Cork, Ireland."):
         contrib_keys = []
+
 
         if len(contribs) == 0:
             return ""
@@ -51,13 +52,13 @@ class fetchUtils():
                     'given_name': given_name,
                     'surname': family_name,
                     'orcid': '',
-                    'primary_affiliation': '',
+                    'primary_affiliation': affiliation,
                     'secondary_affiliation': '',
                     'email_for_ucc_authors': '',
                     'lookup': lookup
                 } 
                 self.contrib_df = self.contrib_df.append(df_row, ignore_index=True)
-                self.contrib_ws.append([lookup, given_name,family_name, '', '', '', ''])
+                self.contrib_ws.append([lookup, given_name,family_name, '', affiliation, '', ''])
                 contrib_keys.append(lookup)
 
         contribs = '||'.join(contrib_keys)
@@ -156,6 +157,16 @@ if __name__ == '__main__':
             title = art.title
             status_code = art.get_status_code()
 
+            #Get affiliation. Only one per article
+            affil = "University College Cork, Ireland."
+            arts_from_toc = issue.get_articles_from_toc()
+            if article_url.lower() in arts_from_toc:
+                art_from_toc = arts_from_toc[article_url.lower()]
+                affil_from_toc =  art_from_toc["affiliation"]
+                if len(affil_from_toc.strip()) > 10:
+                    affil = "{0}, {1}".format(affil_from_toc, affil)
+                
+            #print(affil)
             
             if status_code != 200:
                 #raise Exception("Warning: failed to fetch {}".format(article_url)) 
@@ -169,7 +180,7 @@ if __name__ == '__main__':
             #non_ojs_meta = issue.get_section_meta_for_non_ojs(section_ref)
             
             authors = art.get_authors()
-            author_keys = utils.get_contibs(authors)
+            author_keys = utils.get_contibs(authors, affil)
             if len(author_keys.strip()) == 0:
                 print("@@@@@ {}".format(authors))
                 raise Exception("No authors found when fetching {}".format(art_doi))
