@@ -65,7 +65,11 @@ class genericJob():
                 self.has_volume = False 
         except:
             print("WARNING: No volume metadata found")
-            self.has_volume = False          
+            self.has_volume = False
+        self.publication_type = self.get_publication_type()
+
+    def get_publication_type(self):
+        return "journal"          
 
     def valid_doi(self, doi):
         doi = self.format_doi(doi)
@@ -94,6 +98,7 @@ class genericJob():
 
     def get_valid_doi(self, doi, ucc=False):
         doi = self.format_doi(doi)
+        #print(doi)
         
         if ucc == True:
             if self.valid_ucc_doi(doi):
@@ -204,49 +209,6 @@ class CrossRefJob(genericJob):
         }
         return head
 
-    def get_journal_metadata(self):
-        journal = {
-            "@attrs": {
-                "reference_distribution_opts": self.reference_distribution_opts,
-            },
-            "full_title": self.journal_title,
-            "abbrev_title": self.journal_short_title,
-            "issn": self.journal_issn,
-            "doi_data": {
-                "doi": self.journal_doi,
-                "resource": self.journal_url
-            }
-        }
-        return journal
-
-    def get_journal_issue(self):
-        journal_issue = {
-            "contributors": self.get_contributors(self.issue_editors_keys, "editor"),
-            "titles": {},
-            "publication_date": self.get_pub_date(self.publication_date),
-            "journal_volume": {},
-            "issue": self.issue_number,
-            "doi_data": {
-                "doi": self.issue_doi,
-                "resource": self.issue_url
-            }
-        }
-
-        if len(self.issue_title.strip()) > 0:
-            journal_issue["titles"] = {
-                "title": self.issue_title
-            }
-        else:
-            del journal_issue["titles"]
-        
-        volume_metadata = self.get_journal_volume()
-        if len(volume_metadata.keys()) > 0:
-            journal_issue["journal_volume"] = self.get_journal_volume()
-        else:
-            del journal_issue["journal_volume"]
-
-        return journal_issue
-      
     def get_contributors(self, lookup, role):
         contributors = {}
         if lookup == "":
@@ -368,6 +330,11 @@ class CrossRefJob(genericJob):
         return el
 
     def get_article(self, raw_row):
+        if self.publication_type == "conference_proceedings":
+            element_name = "conference_paper" 
+        else:
+            element_name = "journal_article" 
+
         contributors = {}
         row = raw_row.fillna('')
         titles = {
@@ -400,7 +367,7 @@ class CrossRefJob(genericJob):
                     "language": language,
                     "reference_distribution_opts": self.reference_distribution_opts,
                 },
-                "@name": "journal_article",
+                "@name": element_name,
                 "titles" : titles,
                 "contributors": contributors,
                 "abstract": self.get_abstract(row["abstract"], language),
@@ -438,16 +405,6 @@ class CrossRefJob(genericJob):
             articles.update(article)
         return articles
 
-    def get_body(self):
-        journal = {}
-
-        journal["journal_metadata"] = self.get_journal_metadata()
-        if self.has_issue:
-            journal["journal_issue"] = self.get_journal_issue()
-        journal.update(self.get_articles())
-        body = {"journal" : journal}
-        return body
-
     def generate(self):
         myDict = self.get_root()
         
@@ -463,13 +420,138 @@ class CrossRefJob(genericJob):
         f.close()
 
 
+
+class CrossRefJournalJob(CrossRefJob):
+
+    def get_journal_metadata(self):
+        journal = {
+            "@attrs": {
+                "reference_distribution_opts": self.reference_distribution_opts,
+            },
+            "full_title": self.journal_title,
+            "abbrev_title": self.journal_short_title,
+            "issn": self.journal_issn,
+            "doi_data": {
+                "doi": self.journal_doi,
+                "resource": self.journal_url
+            }
+        }
+        return journal
+
+    def get_journal_issue(self):
+        journal_issue = {
+            "contributors": self.get_contributors(self.issue_editors_keys, "editor"),
+            "titles": {},
+            "publication_date": self.get_pub_date(self.publication_date),
+            "journal_volume": {},
+            "issue": self.issue_number,
+            "doi_data": {
+                "doi": self.issue_doi,
+                "resource": self.issue_url
+            }
+        }
+
+        if len(self.issue_title.strip()) > 0:
+            journal_issue["titles"] = {
+                "title": self.issue_title
+            }
+        else:
+            del journal_issue["titles"]
+        
+        volume_metadata = self.get_journal_volume()
+        if len(volume_metadata.keys()) > 0:
+            journal_issue["journal_volume"] = self.get_journal_volume()
+        else:
+            del journal_issue["journal_volume"]
+
+        return journal_issue
+      
+
+    def get_body(self):
+        journal = {}
+
+        journal["journal_metadata"] = self.get_journal_metadata()
+        if self.has_issue:
+            journal["journal_issue"] = self.get_journal_issue()
+        journal.update(self.get_articles())
+        body = {"journal" : journal}
+        return body
+
+class CrossRefConferenceJob(CrossRefJob):
+    def get_publication_type(self):
+        return "conference_proceedings"     
+
+    def get_proceedings_metadata(self):
+        publication_date = self.get_pub_date(self.publication_date)
+        proceedings_metadata = {
+            "@attrs": {
+                "reference_distribution_opts": self.reference_distribution_opts,
+            },
+            "proceedings_title": self.issue_title,
+        }
+        
+        publishers = self.journal_publisher.strip().split("||")
+        i = 0
+        for publisher in publishers:
+            proceedings_metadata["pubisher{}".format(i)] = {
+                "@name": "publisher",
+                "publisher_name": publisher.strip(),
+            }
+            i += 1
+
+        proceedings_metadata["publication_date"] = publication_date
+        proceedings_metadata["doi_data"] = {
+                "doi": self.issue_doi,
+                "resource": self.issue_url
+            }
+        return proceedings_metadata
+
+    def get_event_metadata(self):
+        event_metadata = {
+            "conference_name": self.issue_title
+        }
+
+        sponsors = self.journal_publisher.strip().split("||")
+        i = 0
+        for sponsor in sponsors:
+            event_metadata["conference_sponsor{}".format(i)] = {
+                "@name": "conference_sponsor",
+                "@value": sponsor.strip()
+            }
+            i += 1
+        
+        event_year = self.issue_number
+        if len(event_year) == 4 and event_year.isnumeric():
+            event_metadata["conference_date"] = { "@attrs": {
+                    "start_year": event_year,
+                    "end_year": event_year
+                }
+            }
+        print(event_metadata)        
+        return event_metadata
+      
+
+    def get_body(self):
+        conference = {}
+
+        #add editors as contributors
+        conference["contributors"] = self.get_contributors(self.issue_editors_keys, "editor")
+        conference["event_metadata"] = self.get_event_metadata()
+        
+        conference["proceedings_metadata"] = self.get_proceedings_metadata()
+
+        conference.update(self.get_articles())
+        body = {"conference" : conference}
+        return body
+
+
 class DspaceJob(genericJob):
 
     def get_initials(self, all_given_names):
         given_names_array = all_given_names.split(" ")
         initials = ""
         for idx, given_name in enumerate(given_names_array):
-            print(given_name)
+            #print(given_name)
             if idx == 0:
                 initials = "{}.".format(given_name[0])
             else:
@@ -499,7 +581,7 @@ class DspaceJob(genericJob):
         if len(end_page) > 0:
             pages = "pp. {}-{}.".format(start_page, end_page)
         else:
-            pages = "pp. {}".format (start_page)
+            pages = "pp. {}.".format (start_page)
         article_citation_list = [
             authors_str,
             "({})".format(year),
@@ -678,7 +760,13 @@ class DspaceJob(genericJob):
                 if column_heading in row:
                     keywords_lang = row[column_heading].replace("|| ", "||").replace(" ||", "||")
                     row_dict["dc.subject[{}]".format(language)] = keywords_lang
+        
+        row_dict = self.clean_row_dict(row_dict)
 
+        return row_dict
+
+    def clean_row_dict(self, row_dict):
+        # this method is a place for sub-classes to make final modifications 
         return row_dict
 
     def generate(self):
@@ -696,6 +784,47 @@ class DspaceJob(genericJob):
                         continue
                 article = self.get_article(row) 
                 writer.writerow(article)
+
+class DspaceConferenceJob(DspaceJob):
+    def get_article_citation(self, authors, year, title, start_page, end_page, doi):
+        no_of_auths = len(authors)
+        authors_str = ""
+        for idx, author in enumerate(authors):
+            initials = self.get_initials(author["given_name"])
+            name = "{}, {}".format(author["surname"], initials)
+            if idx == 0:
+                authors_str = name
+            elif idx == (no_of_auths - 1):
+                authors_str = "{} and {}".format(authors_str, name)
+            else:
+                authors_str = "{}, {}".format(authors_str, name)
+
+        if len(end_page) > 0:
+            pages = "pp. {}-{}.".format(start_page, end_page)
+        else:
+            pages = "pp. {}.".format (start_page)
+        article_citation_list = [
+            authors_str,
+            "({})".format(self.issue_number),
+            "'{}',".format(title),
+            "{},".format(self.issue_title),
+            pages,
+            "doi: {}".format(doi)
+        ]
+
+        article_citation = " ".join(article_citation_list)
+        return article_citation
+
+    def clean_row_dict(self, row_dict):
+        row_dict = row_dict
+        del row_dict['dc.identifier.issued[]']
+        del row_dict['dc.identifier.journalabbrev[en]']
+        del row_dict['dc.identifier.journaltitle[en]']
+        
+        
+        row_dict['dc.date.issued[]'] = self.issue_number
+        # this method is a place for sub-classes to make final modifications 
+        return row_dict
 
 
 
@@ -996,7 +1125,7 @@ class OjsJob(genericJob):
             elif isinstance(v, dict):
                 found = self.tree_traverse(v) 
                 if found is not None:  # check if recursive call found it
-                    print(found)
+                    #print(found)
                     return found
 
     def generate(self):
@@ -1004,7 +1133,7 @@ class OjsJob(genericJob):
 
         output_path = self.path.replace(".xlsx", "_ojs.xml")
         f = open(output_path, "w", encoding='utf-8')
-        print(myDict["issue"]["date_published"])
+        #print(myDict["issue"]["date_published"])
         found = self.tree_traverse(myDict)
         f.write(dict2xml(myDict))
         f.close()
