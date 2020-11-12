@@ -18,7 +18,7 @@ for input_file in filenames:
     dspace_job = xmet.DspaceJob(input_file)
     dspace_job.generate()
 
-    ojs_job = xmet.OjsJob(input_file)
+    ojs_job = xmet.OjsScenarioJob(input_file)
     ojs_job.generate()
 
     

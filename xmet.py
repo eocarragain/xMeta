@@ -57,7 +57,7 @@ class genericJob():
                 self.volume_doi = self.get_valid_doi(volume_series['doi'])
             else:
                 self.volume_doi = ""
-            self.volume_number = str(volume_series['volume_number'])
+            self.volume_number = str(int(volume_series['volume_number']))
             self.volume_url = volume_series['volume_url']
             if self.volume_number:        
                 self.has_volume = True
@@ -1073,6 +1073,7 @@ class OjsJob(genericJob):
             }
 
         volume_metadata = self.get_journal_volume()
+        print(volume_metadata)
         vol_roman = False
         if len(volume_metadata.keys()) > 0:
             vol = self.get_valid_vol_number(self.get_journal_volume()["volume"])
@@ -1086,6 +1087,8 @@ class OjsJob(genericJob):
 
         if len(self.issue_title.strip()) > 0:
             issue_identification["title"] = self.issue_title
+            del issue_identification["title_en"]
+            del issue_identification["title_de"]
         else:
             if vol_roman:
                 title_en = "Volume {}, Issue {} ({})".format(vol_roman, num, year)
@@ -1102,9 +1105,9 @@ class OjsJob(genericJob):
         return doi.split("/")[1].replace(".", "-")
 
 
-    def get_sections(self, sections_data):
-        sections = {}
-        return sections
+    #def get_sections(self, sections_data):
+    #    sections = {}
+    #    return sections
 
     def get_root(self):
         root = {
@@ -1147,6 +1150,7 @@ class OjsJob(genericJob):
     def get_journal_issue(self):
         issue_obj = self.get_issue()
         doi_path = self.get_path_from_doi(self.issue_doi) 
+
         journal_issue = {
             "issue": {
                 "@attrs": {
@@ -1174,7 +1178,14 @@ class OjsJob(genericJob):
                 "last_modified": datetime.datetime.now().strftime("%Y-%m-%d"),
                 "sections": self.get_sections(issue_obj.get_sections_as_dict()),
                 "covers": {},
-                "issue_galleys": {
+                "issue_galleys": {},
+                "articles": self.get_articles()    
+            }
+        }
+
+        issue_galleys = {}
+        if issue_obj.get_issue_galley_path() != "":
+            issue_galleys = {
                     "@attrs": {
                         "xmlns:xsi": "http://www.w3.org/2001/XMLSchema-instance",
                         "xsi:schemaLocation": "http://pkp.sfu.ca native.xsd"
@@ -1197,10 +1208,10 @@ class OjsJob(genericJob):
                             }       
                         }
                     }
-                },
-                "articles": self.get_articles()    
-            }
-        }
+                }
+            journal_issue["issue"]["issue_galleys"] = issue_galleys
+        else:
+            del journal_issue["issue"]["issue_galleys"]
 
         issue_cover = {}
         if issue_obj.issue_cover_path != "":
@@ -1248,7 +1259,10 @@ class OjsJob(genericJob):
         issue = self.get_issue() # scenario.parseScenarioIssue(issue_url)
 
         toc = issue.get_articles_from_toc()
-        toc_row = toc[url.lower()]
+        if url.lower() in toc:
+            toc_row = toc[url.lower()]
+        else:
+            toc_row = {}
         toc_row_de = {}
 
         # article url patter consistent for 
@@ -1290,7 +1304,7 @@ class OjsJob(genericJob):
             abstract_de = abstract
     
         if 'section' in toc_row:
-            toc_section = toc_row['section'] 
+            toc_section = toc_row['section']
         else:
             toc_section = "article"
         section_ref = issue.get_section_ref(toc_section, title)
@@ -1470,10 +1484,13 @@ class OjsJob(genericJob):
                 policy = ""
             else:
                 policy = data["policy"]
-
-            title_de = data['title_de']
-            if str(title_de) == 'nan' or len(str(title_de)) == "":
-                title_de = data['title_en']
+            
+            if 'title_de' in data:
+                title_de = data['title_de']
+                if str(title_de) == 'nan' or len(str(title_de)) == "":
+                    title_de = data['title_en']
+            else:
+                title_de = ""
                        
             section_details = {
                     "@attrs": {
@@ -1509,6 +1526,9 @@ class OjsJob(genericJob):
                         "@value": title_de
                     },
                 }
+
+            if title_de == "":
+                del section_details["title_de"]
             sections["section_{}".format(ref)] = section_details
         return sections
 
@@ -1567,7 +1587,48 @@ class OjsScenarioJob(OjsJob):
         return art_obj
 
 
+class OjsChimeraJob(OjsJob):
 
+    def get_article_no(self, doi):
+        art_id = int(doi.split(".")[-1])
+        art_no = 700 + art_id
+        return str(art_no) 
+
+    def get_issue_path(self):
+        return "http://research.ucc.ie/chimera/2013/00"
+
+    def get_issue(self):
+        issue_path = self.get_issue_path()
+        issue = scenario.parseIssue(issue_path)
+        return issue
+
+    def get_article_obj(self, url):
+        art_obj = scenario.parseChimera(url)
+        return art_obj
+
+class OjsIjppJob(OjsJob):
+
+    def get_article_no(self, doi):
+        art_id = int(doi.split(".")[-1])
+        art_no = 800 + art_id
+        return str(art_no) 
+
+    def get_issue_path(self):
+        issue_identification = self.get_issue_identification()
+        num_pad = issue_identification["number"].rjust(2, '0')
+        num = str(int(num_pad))
+        year = issue_identification["year"]
+        issue_path = "http://research.ucc.ie/ijpp/{0}/{1}".format(year, num_pad)
+        return issue_path 
+
+    def get_issue(self):
+        issue_path = self.get_issue_path()
+        issue = scenario.parseIjppIssue(issue_path)
+        return issue
+
+    def get_article_obj(self, url):
+        art_obj = scenario.parseIjpp(url)
+        return art_obj
 
 
 

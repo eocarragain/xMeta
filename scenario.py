@@ -1,4 +1,5 @@
 from bs4 import BeautifulSoup
+import bs4
 import requests
 import base64
 import mimetypes
@@ -8,14 +9,67 @@ import copy
 import PyPDF2 as pyPdf
 import io
 import re
+import fetchutils
+import json
+import os
+
 
 class parseIssue():
     def __init__(self, issue_url):
         self.issue_url = issue_url.strip()   
         req = requests.get(self.issue_url)
-        self.issue_page = req.text
+        self.issue_page = self.get_issue_page(req)
         self.soup = BeautifulSoup(self.issue_page, 'html.parser')
         self.issue_cover_path = self.get_issue_cover_path()
+        self.issue_pages = {}
+        self.cache_folder = self.get_cache_folder()
+        self.create_cache_folder()
+
+    def get_cache_folder(self):
+        cwd = os.getcwd()
+        cache_folder = os.path.join(cwd, ".cache")
+        return cache_folder
+
+    def create_cache_folder(self):
+        if not os.path.exists(self.cache_folder):
+            os.mkdir(self.cache_folder)
+
+
+    def get_status_code(self):
+        return self.status_code
+
+    def get_issue_page(self, req):
+        if req.status_code == 200:
+            self.status_code = 200
+            return req.text
+        
+        # try to fetch from wayback
+        wb_urls = [
+            self.get_wayback_api_url(self.issue_url), 
+            self.get_wayback_api_url(self.issue_url.replace("research.ucc.ie", "publish.ucc.ie"))
+            ]
+        for wb_url in wb_urls:
+            wb_api = requests.get(wb_url)
+            wb_api_resp = wb_api.json()
+            print(wb_api_resp)
+            if wb_api_resp["archived_snapshots"] != {}:
+                wb_url = wb_api_resp["archived_snapshots"]["closest"]["url"]
+                wb_page_req = requests.get(wb_url)
+                if wb_page_req.status_code == 200:
+                    self.status_code = 200
+                    self.page_url = wb_url
+                    return wb_page_req.text
+                else:
+                    print("Warning: failed to load from wayback: {}".format(wb_url))
+
+        self.status_code = 500
+        raise Exception("Failed to load html for {0}".format(self.page_url))
+        return req.text
+
+    #todo dry this out. 
+    def get_wayback_api_url(self, journal_url):
+        return "http://archive.org/wayback/available?url={}".format(journal_url)
+
 
     #todo dry this out. duplicate of xmet.py
     def is_int(self, val):
@@ -66,9 +120,12 @@ class parseIssue():
         return ""
 
     def get_issue_galley(self):
-        req = requests.get(self.get_issue_galley_path())
+        issue_galley_path = self.get_issue_galley_path()
+        if issue_galley_path == "":
+            raise Exception("Failed to load issue galley for {0}".format(self.issue_url))
+        req = requests.get(issue_galley_path)
         if req.status_code != 200:
-            raise Exception("Failed to load issue galley for {0}".format(self.page_url))
+            raise Exception("Failed to load issue galley for {0}".format(self.issue_url))
         return req.content        
 
     def get_encoded_issue_galley(self):
@@ -202,6 +259,193 @@ class parseBooleanIssue(parseIssue):
         year = self.get_year()
         issue_cover_path = "http://ojs.ucc.ie/public/site/boolean_covers/boolean-{}_border.png".format(year)
         return issue_cover_path
+
+class parseIjppIssue(parseIssue):
+    def __init__(self, issue_url):
+        parseIssue.__init__(self, issue_url)
+        self.section_mapping_wb = "ijpp_tocs.xlsx"
+
+    def get_sections_as_dict(self):
+        wb = self.section_mapping_wb
+        xl = pd.ExcelFile(wb)
+        section_df = xl.parse('section_meta')
+        return section_df.to_dict('records')
+
+    def get_section_ref(self, toc_section, toc_title):
+        return toc_section
+
+    def get_voliss(self):
+        voliss = self.soup.select("span.voliss")[0].get_text().strip()
+        return voliss
+
+    def get_voliss_dict(self):
+        dict = {}
+        voliss = self.get_voliss()
+        voliss = voliss.lower().replace("volume", "")
+        parts = voliss.split("issue")
+        dict["vol"] = parts[0].strip()
+        dict["issue"] = parts[1].strip()
+        return dict     
+
+    def get_volume(self):
+        vol = self.get_voliss_dict()["vol"]
+        return vol
+
+    def get_issue_from_voliss(self):
+        issue = self.get_voliss_dict()["issue"]
+        return issue
+
+    def get_issue(self):
+        return self.issue_url.split("/")[-1]
+
+    def get_year(self):
+        return self.issue_url.split("/")[-2]
+
+    def get_editors(self):
+        year = self.get_year()
+        issue = self.get_issue()
+        key = "{}-{}".format(year, issue)
+        editors = {
+            "2009-01": ["Séamus Ó Tuama", "Tom O'Connor", "Clodagh Harris", "Aodh Quinlivan", "Dick Haslam"],
+            "2010-01": ["Mairéad Considine", "Fiona Dukelow"],
+            "2011-01": ["Séamus Ó Tuama", "Gerard Mullally"],
+            "2011-02": ["Séamus Ó Tuama"],
+            "2012-01": ["Séamus Ó Tuama", "Tom O’Connor"]
+        }
+        return editors[key]
+
+    # dry this out
+    def normalise_url_key(self, url):
+        url = url.replace("publish.ucc.ie", "research.ucc.ie")
+        url = url.replace("research.ucc.ie:80", "research.ucc.ie")
+        url = url.lower()
+        return url
+
+    def get_article_obj(self, url):
+        return parseIjpp(url)
+
+    def get_issue_pages(self, try_cache = True):
+        year = self.get_year()
+        issue = self.get_issue()
+        cache_file = "ijpp_{}_{}_issue_pages.json".format(year, issue)
+        
+        cache_path = os.path.join(self.cache_folder, cache_file)
+        pages = {}      
+
+        # avoid fetching article pdfs every time this method is called
+        if self.issue_pages != {}:
+            return self.issue_pages
+         
+        # load from cache if present
+        # todo - write this to a cache to avoid lots of http requests
+        if try_cache == True:
+            try:
+                with open(cache_path, 'r') as f:
+                    pages = json.load(f)
+                    return pages
+            except:
+                "INFO: Failed to load cache_file: {}".format(cache_file)
+
+        articles = self.get_articles_from_toc()
+        article_urls = list(articles.keys())
+        for idx, article_url in enumerate(article_urls):
+            print("article_url {}".format(article_url))
+            start_page = ""
+            end_page = ""
+            # get start page
+            if idx == 0:
+                start_page = 1
+            else:
+                prev_url = article_urls[idx -1]
+                prev_end_page = pages[prev_url]["end_page"]
+                start_page = prev_end_page + 1
+            
+            art_obj = self.get_article_obj(articles[article_url]["url"])
+            page_count = art_obj.get_pdf_page_count()
+            end_page = start_page + page_count -1
+            pages[article_url] = {"start_page" : start_page, "end_page": end_page}
+            # open pdf & get page count
+        
+        self.issue_pages = pages
+        # overwrite cache
+        
+        with open(cache_path, 'w') as f:
+            json.dump(pages, f)
+
+        return pages
+
+    def get_section_from_title(self, title):
+        title = title.lower()
+        if title.startswith(("op-ed", "op ed", "oped", "comment piece", "opinion")):
+            section = "OP"
+        elif title.startswith(("book review", )):
+            section = "BR"
+        elif title.startswith(("policy review" )):
+            section = "PR"
+        elif title.startswith(("obituaries" )):
+            section = "OB"
+        elif title.startswith(("welcome", "editorial", "introduction", "foreword" )):
+            section = "ED"
+        else:
+            section = "ART"
+
+        return section
+
+    def get_articles_from_toc(self):
+        # nb urls used for dict keys are normalised to lower
+        # good for comparison but the url value should not be taken directly from key
+        articles = {}
+        article_rows = self.soup.select("table.published")
+        #print("article rows {}".format(article_rows))
+
+        for row in article_rows:
+            #print(row)
+            title = row.select("td")[0]
+            title_str = title.get_text()
+            title_str = " ".join(title_str.split()).strip()
+            author = row.select("td")[2]
+            if len(author.get_text().strip()) == 0:
+                raise Exception("No author found")
+            else:
+                author_str = author.get_text()
+                author_str = author_str.replace('\n', '').replace('\r', '')
+                author_str = " ".join(author_str.split()).strip()
+            title_link = title.select("a")[0]
+            url_html = title_link['href']
+            if url_html.startswith("http"):
+                url_html = url_html 
+            else:
+                url_html = "{0}/{1}".format(self.issue_url.rsplit("/", 1)[0], url_html)
+
+            section_ref = self.get_section_from_title(title_str)
+
+            seq = url_html.split("/")[-2]
+            article = {
+                "seq": seq,
+                "title": title_str,
+                "authors": author_str,
+                "url": url_html,
+                "section": section_ref
+            }
+            url_key = self.normalise_url_key(url_html)
+
+            articles[url_key] = article
+        return articles
+
+    def get_unique_article_urls(self):
+        all_urls = self.get_article_urls_all_languages()
+        url_dict = {}
+        unique_urls = []
+        for url in all_urls:
+            id = url.split("/")[-2]
+            url_dict[id] = url
+        return url_dict.values()
+
+    def get_issue_galley_path(self):
+        return ""   
+
+    def get_issue_cover_path(self):
+        return "" 
 
 class parseScenarioIssue(parseIssue):
     def __init__(self, issue_url):
@@ -441,7 +685,8 @@ class parseArticle():
         self.issue = self.get_issue_obj()
         self.title = self.get_title()
         self.doi = self.get_doi()
-        self.pages = self.get_pages()
+        #self.pages = self.get_pages()
+        self.url_key = self.normalise_url_key(self.page_url)
 
     def get_issue_obj(self):
         return parseIssue(self.issue_url)
@@ -450,6 +695,23 @@ class parseArticle():
         return ""
 
     def has_doi(self):
+        return False
+
+    # dry this out
+    def normalise_url_key(self, url):
+        url = self.strip_wayback(url)
+        url = url.replace("publish.ucc.ie", "research.ucc.ie")
+        url = url.replace("research.ucc.ie:80", "research.ucc.ie")
+        url = url.lower()
+        return url
+
+    def url_in_wb(self, url):
+        wb_api_url = self.get_wayback_api_url(url)
+        wb_api_resp = requests.get(wb_api_url).json()
+        if wb_api_resp["archived_snapshots"] != {}:
+            wb_url = wb_api_resp["archived_snapshots"]["closest"]["url"]
+            if wb_api_resp["archived_snapshots"]["closest"]["status"] == "200":
+                return wb_url
         return False
 
     def get_issue_url(self):
@@ -489,11 +751,21 @@ class parseArticle():
                     return wb_page_req.text
                 else:
                     print("Warning: failed to load from wayback: {}".format(wb_url))
+        
+        fallback_url = self.get_fallback_url()
+        if len(fallback_url) > 0:
+            fallback_req = requests.get(fallback_url)
+            if fallback_req.status_code == 200:
+                self.status_code = 200
+                #self.page_url = fallback_url
+                return fallback_req.text
 
         self.status_code = 500
         raise Exception("Failed to load html for {0}".format(self.page_url))
         return req.text
 
+    def get_fallback_url(side):
+        return ""
 
     def get_wayback_api_url(self, journal_url):
         return "http://archive.org/wayback/available?url={}".format(journal_url)
@@ -503,14 +775,16 @@ class parseArticle():
 
     def get_toc_elements(self):
         url = self.strip_wayback(self.page_url)
-        toc = self.issue.get_articles_from_toc()[url.lower()]
+        url_key = self.normalise_url_key(url)
+        #print(self.issue.get_articles_from_toc())
+        toc = self.issue.get_articles_from_toc()[url_key]
         return toc
 
     def get_start_page(self):
-        return self.pages["start_page"]
+        return self.get_pages()["start_page"]
 
     def get_end_page(self):
-        return self.pages["end_page"]
+        return self.get_pages()["end_page"]
 
     #todo dry this out. duplicate of xmet.py and above class
     def is_int(self, val):
@@ -607,50 +881,13 @@ class parseBoolean(parseArticle):
         self.issue = self.get_issue_obj() 
         self.title = self.get_title()
         self.doi = self.get_doi()
-        self.pages = self.get_pages()
+        #self.pages = self.get_pages()
 
     def has_doi(self):
         return True
 
-    def get_page(self, req):
-        if req.status_code == 200:
-            self.status_code = 200
-            return req.text
-        
-        # try to fetch from wayback
-        wb_urls = [
-            self.get_wayback_api_url(self.page_url), 
-            self.get_wayback_api_url(self.page_url.replace("research.ucc.ie", "publish.ucc.ie"))
-            ]
-        for wb_url in wb_urls:
-            wb_api = requests.get(wb_url)
-            wb_api_resp = wb_api.json()
-            print(wb_api_resp)
-            if wb_api_resp["archived_snapshots"] != {}:
-                wb_url = wb_api_resp["archived_snapshots"]["closest"]["url"]
-                wb_page_req = requests.get(wb_url)
-                if wb_page_req.status_code == 200:
-                    self.status_code = 200
-                    self.page_url = wb_url
-                    return wb_page_req.text
-                else:
-                    print("Warning: failed to load from wayback: {}".format(wb_url))
-
-        self.status_code = 500
-        #raise Exception("Failed to load html for {0}".format(self.page_url))
-        return req.text
-
     def get_issue_obj(self):
         return parseBooleanIssue(self.issue_url)
-
-    def url_in_wb(self, url):
-        wb_api_url = self.get_wayback_api_url(url)
-        wb_api_resp = requests.get(wb_api_url).json()
-        if wb_api_resp["archived_snapshots"] != {}:
-            wb_url = wb_api_resp["archived_snapshots"]["closest"]["url"]
-            if wb_api_resp["archived_snapshots"]["closest"]["status"] == "200":
-                return wb_url
-        return False
 
     def get_pdf(self):
         pdf_url = self.page_url.replace("/boolean/", "/boolean/pdf/")
@@ -837,7 +1074,7 @@ class parseScenario(parseArticle):
         self.issue = self.get_issue_obj()
         self.title = self.get_title()
         self.doi = self.get_doi()
-        self.pages = self.get_pages()
+        #self.pages = self.get_pages()
 
     def get_issue_obj(self):
         return parseScenarioIssue(self.issue_url)
@@ -1308,4 +1545,512 @@ class parseScenario(parseArticle):
         cc_bottom["id"] = "cc_bottom"
         cc_bottom.string = cc_statement
         body.append(cc_bottom)
+        return template
+
+class parseChimera(parseArticle):
+    def __init__(self, issue_url):
+        parseArticle.__init__(self, issue_url)
+        self.title = self.get_title()
+        self.doi = self.get_doi()
+        #self.pages = self.get_pages()
+
+    def has_doi(self):
+        return True
+
+    def get_title(self):
+        el = self.soup.select('a#toggle_s2')[0]
+        title = el.get_text()
+        if title.endswith(":"):
+            title = title[:-1]
+        elif title.startswith("Book Reviews"):
+            title = "Book Revews: 1) The Great Animal Orchestra: finding the origins of music in the world’s wild places, by Krause, B.; 2) Cultures of Energy: power, practice, technologies, edited by Strauss, S., Rupp, S. and Loue, T."
+        return title
+
+    def get_pdf(self):
+        url_parts = self.page_url.rsplit("/", 5)
+
+        alt_filename = "{0}-{1}-{2}-{3}-{4}.pdf".format(
+            url_parts[-2], #art_id
+            url_parts[-3], #name
+            url_parts[-5], #year
+            url_parts[-4], #issue, ie. 00
+            url_parts[-1]  #lang
+        )
+
+        base_url = "http://ojs.ucc.ie/public/site/chimera_covers"
+        pdf_url = "{0}/{1}".format(base_url, alt_filename)
+
+        print(pdf_url)
+        req = requests.get(pdf_url)
+        if req.status_code == 200:
+            return req.content
+
+        raise Exception("Failed to load pdf for {0}".format(self.page_url))
+
+    def get_pages(self):
+        # todo
+        print("WARNING: Failed to find pages for {}".format(self.page_url))
+        return {"start_page": "0", "end_page": "0"}
+
+    def parse_keywords(self, tmp):
+        tmp = " ".join(tmp.split()).strip()
+        tmp = tmp.lower().replace("key words", "keywords")
+        if tmp.startswith("keywords:"):
+            tmp = tmp.replace("keywords:", "").strip()
+            if tmp.endswith("."):
+                tmp = tmp[:-1]
+            tmp = tmp.replace(",","||").replace(";","||")
+            tmp = tmp.replace(" ||","||").replace("|| ","||")
+            return tmp
+        return ""
+        
+    def get_keywords(self):
+        keywords = ""
+        els = self.soup.select('div.abstract')  
+        for el in els:
+            tmp = self.parse_keywords(el.get_text())
+            if tmp != "":
+                keywords = tmp
+                break
+
+        if keywords == "":
+            el = self.soup.select('p.body')[1]
+            tmp = self.parse_keywords(el.get_text())
+            if tmp != "":
+                keywords = tmp
+        return keywords
+
+    def get_abstract(self):
+        abstract = ""
+        els = self.soup.select('div.abstract')
+        if len(els) > 0:
+            tmp = els[0].get_text()
+            tmp = " ".join(tmp.split()).strip()
+            if tmp.lower().startswith("phd"):
+                tmp = els[1].get_text()
+            elif tmp.lower().startswith("in the second half of the 19th"):
+                tmp = "{} {}".format(tmp, els[1].get_text())
+            abstract = tmp
+            abstract = " ".join(abstract.split()).strip()
+        return abstract
+
+    def get_authors(self, fallback_author=''):
+        authors = []
+        els = self.soup.select('h3.Author')
+        if len(els) > 0:
+            author = els[0].get_text()
+            author = " ".join(author.split()).strip()
+            author = author.replace("Dr.", "").strip()
+            authors.append(author)
+
+        if len(authors) == 0:
+            if fallback_author != '':
+                authors.append(fallback_author)         
+        
+        return authors
+
+    def get_affiliation(self, default_affil = ""):
+        # there is only ever one
+        els = self.soup.select('address.Affiliation')
+        if len(els) > 0:
+            affil = els[0].get_text()
+            affil = " ".join(affil.split()).strip()
+            return affil
+
+        author = self.get_authors("Breffní Lennon")[0]
+        if "Lennon" in author:
+            return "Indepdendent Research"
+        
+        return default_affil
+               
+    def get_citations(self):
+        citations = []
+        els = self.soup.select('li.Reference')
+        for el in els:
+            citation = el.get_text()
+            citation = " ".join(citation.split()).strip()
+            if citation.strip() == "":
+                continue
+            elif citation.lower().startswith(("reference", "archival material", "publications")):
+                continue
+            citations.append(citation)
+
+        return citations
+
+
+    def get_html(self):
+        if self.status_code != 200:
+            return ""
+        html_template = """<!DOCTYPE html><html><head>
+                           <link rel="stylesheet" href="../../../../../public/site/chimera_html.css" />
+                           <script src="../../../../../public/site/chimera_html.js" />
+                           </head><body><span /></body></html>"""
+        template = BeautifulSoup(html_template, 'html.parser')
+ 
+
+        content_box = self.soup.select("div#content")[0]
+
+        for img in content_box.find_all('img'):
+            if "src" not in img.attrs:
+                continue   
+            img_url = self.get_absolute_url(img["src"])
+            print("########################## {0}".format(img_url))
+            # horrible hack for broken image
+            bad_images = {
+                "http://web.archive.org/web/20190127195002im_/http://research.ucc.ie/journals/chimera/2013/00/sheridanquantz/06/en/media/image10.jpeg%20media/image9.jpeg":
+                "http://ojs.ucc.ie/public/site/chimera_covers/06-fig9.png",
+                "http://web.archive.org/web/20190127194951im_/http://research.ucc.ie/journals/chimera/2013/00/sheridanquantz/06/en/media/image10.jpeg media/image9.jpeg":
+                "http://ojs.ucc.ie/public/site/chimera_covers/06-fig9.png",
+                "http://web.archive.org/web/20190629061410im_/http://research.ucc.ie/journals/chimera/2013/00/kandrot/09/en/media/image5.jpeg media/image4.jpeg":
+                "http://ojs.ucc.ie/public/site/chimera_covers/09-fig4.png",
+                "http://web.archive.org/web/20190629061410im_/http://research.ucc.ie/journals/chimera/2013/00/kandrot/09/en/media/image7.emf":
+                "http://ojs.ucc.ie/public/site/chimera_covers/09-fig6.png",
+                "http://web.archive.org/web/20190629061410im_/http://research.ucc.ie/journals/chimera/2013/00/kandrot/09/en/media/image12.png media/image13.png":
+                "http://ojs.ucc.ie/public/site/chimera_covers/09-fig10.png"
+            }
+            
+            if img_url in bad_images:
+                img_url = bad_images[img_url]
+            image_req = requests.get(img_url)
+            if image_req.status_code != 200:
+                if  "web.archive.org" in img_url:
+                    orig_img_url = "http://{}".format(img_url.split("//")[2])
+                    image_req = requests.get(orig_img_url)
+                    print("retrying image download from original: {}".format(orig_img_url))
+                    if image_req.status_code != 200:
+                        raise Exception("Unable to download image {0} from research.ucc.ie or from {1}".format(img_url, self.page_url))
+                else:        
+                    raise Exception("Unable to download image {0} for page {1}".format(img_url, self.page_url))
+            image_data = image_req.content
+
+            mimetype = mimetypes.guess_type(img_url)[0]
+            img['src'] = "data:%s;base64,%s" % (mimetype, base64.b64encode(image_data).decode('utf-8'))
+
+
+        body = template.find("body")
+        body.append(content_box)
+        return template
+
+class parseIjpp(parseArticle):
+    def __init__(self, issue_url):
+        parseArticle.__init__(self, issue_url)
+        self.issue = self.get_issue_obj() 
+        self.title = self.get_title()
+        self.doi = self.get_doi()
+        #self.pages = {}
+        self.utils = fetchutils.fetchUtils("contribs_ijpp.xlsx")
+
+    def has_doi(self):
+        return True
+
+    def get_issue_obj(self):
+        return parseIjppIssue(self.issue_url)
+
+    def build_fallback_urls(self, ext="pdf"):
+        url_parts = self.page_url.rsplit("/", 5)
+
+        alt_filename = "{0}-{1}-{2}-{3}-{4}.{5}".format(
+            url_parts[-2], #art_id
+            url_parts[-3], #name
+            url_parts[-5], #year
+            url_parts[-4], #issue, ie. 00
+            url_parts[-1], #lang
+            ext            #extension
+        )
+
+        base_url = "http://ojs.ucc.ie/public/site/ijpp_covers/ijpp_docs"
+        fallback_url = "{0}/{1}-{2}/{3}".format(base_url, url_parts[-5], url_parts[-4], alt_filename)  
+        return fallback_url
+
+    def get_fallback_url(self):
+        return self.build_fallback_urls("html")
+
+    def get_pdf(self):
+        pdf_url = self.build_fallback_urls("pdf")
+        print(pdf_url)
+        req = requests.get(pdf_url)
+        if req.status_code == 200:
+            return req.content
+
+        raise Exception("Failed to load pdf for {0}".format(self.page_url))
+
+    def get_pages(self):
+        issue_pages = self.issue.get_issue_pages()
+        start_page = str(issue_pages[self.url_key]["start_page"])
+        end_page = str(issue_pages[self.url_key]["end_page"])
+        # todo
+        # pages = {}
+        pages = {"start_page": start_page, "end_page": end_page}
+        return pages
+
+    def get_abstract(self):
+        abstract = ""
+
+        els = self.soup.select('div.abstract')
+        if len(els) > 0:
+            abstract = els[0].get_text()
+            abstract = " ".join(abstract.split()).strip()
+        
+        if abstract.startswith("Abstract"):
+            abstract = abstract[8:].strip()
+        return abstract
+
+    def get_authors_from_toc(self, fallback_author=''):
+        toc = self.get_toc_elements()
+        authors_str = toc["authors"]
+        authors = self.parse_authors(authors_str, fallback_author)
+        return authors
+        
+    def get_affiliations_from_body(self):
+        affils = {}
+        affils_ordered = self.soup.select('ol.affiliation li')
+        if len(affils_ordered) > 0:
+            n = 1
+            for affil in affils_ordered:
+                affil_str = affil.get_text()
+                affil_str = " ".join(affil_str.split()).strip()
+                affils[str(n)] = affil_str
+                n += 1
+        else:
+            affils_unordered = self.soup.select('ul.affiliation')
+            if len(affils_unordered) == 1:
+                affil_str = affils_unordered[0].get_text()
+                affil_str = " ".join(affil_str.split()).strip()
+                affils['*'] = affil_str
+            elif len(affils_unordered) > 1:
+                raise Exception("Unexpected number of author affiliations")
+        return affils
+
+    def get_name_els(self, author, name_parts, affil):
+        given_name = name_parts[0]
+        family_name = name_parts[1]
+        lookup = self.utils.get_name_lookup(given_name, family_name)
+        dict = {lookup: 
+            {
+                "name" : author,
+                "given_name": given_name,
+                "family_name": family_name,
+                "affiliation": affil
+            }
+        }
+        return dict
+
+    def get_authors_affils(self):
+        auth_affil = {}
+        affil_dict = self.get_affiliations_from_body()
+        author_els = self.soup.select('h2.Author')
+        if len(author_els) > 0:
+            author_el = author_els[0]
+            print(author_el)
+            idx = 0 
+            for nd in author_el.children:
+                affil = ""
+                if isinstance(nd, bs4.element.NavigableString):
+                    next_idx =  idx + 1
+                    if next_idx <= (len(author_el.contents) -1):
+                        next_sibling = author_el.contents[idx + 1]
+                        if isinstance(next_sibling, bs4.element.Tag):
+                            affil_key = next_sibling.get_text().strip()
+                            if affil_key in affil_dict:
+                                affil = affil_dict[affil_key]
+                    authors = self.parse_authors(nd)
+                    for author in authors:
+                        if len(author.strip()) == "":
+                            continue
+                        author = " ".join(author.split()).strip()
+                        author = author.replace("Dr. ", "Dr ").replace("Prof. ", "Prof ").replace("Professor ", "Prof ").replace("Reviewer: ", "Reviewer ").replace("Editor: ", "Editor ")
+                        if author.startswith("Dr "):
+                            author = author[2:].strip()
+                        elif author.startswith("Prof " ):
+                            author = author[4:].strip()
+                        elif author.startswith("Senator " ):
+                            author = author[7:].strip()
+                        elif author.startswith("Reviewer " ):
+                            author = author[8:].strip()
+                        elif author.startswith("Editor " ):
+                            author = author[6:].strip()
+                        name_parts = self.utils.get_name_parts(author)
+                        if len(name_parts) < 2:
+                            continue
+                        name_dict = self.get_name_els(author, name_parts, affil)
+                        lookup = list(name_dict.keys())[0]
+                        auth_affil[lookup] = name_dict[lookup]
+
+                #elif isinstance(nd, bs4.element.Tag):
+                #    continue
+                idx += 1
+        else:
+            affil = ""
+            author_els = self.soup.select('h2.Reviewer')
+            if len(author_els) > 0:
+                author_el = author_els[0]
+                author = author_el.get_text().strip()
+                if author.endswith((".", ",")):
+                    author = author[:-1]
+                affil_el = author_el.find_next("p")
+                if isinstance(affil_el, bs4.element.Tag):
+                    affil = affil_el.get_text()
+                    affil = " ".join(affil.split()).strip()
+                name_parts = self.utils.get_name_parts(author)
+                if len(name_parts) == 2:
+                    name_dict = self.get_name_els(author, name_parts, affil)
+                    lookup = list(name_dict.keys())[0]
+                    auth_affil[lookup] = name_dict[lookup]
+       
+        return auth_affil
+
+    def get_authors(self, fallback_author=''):
+        auths = []
+        auth_affil = self.get_authors_affils()
+        for auth in auth_affil:
+            auths.append(auth_affil[auth]['name']) 
+        if auths == [] and fallback_author != "":
+            auths.append(fallback_author)
+        return auths
+
+    def parse_authors(self, authors_str, fallback_author=''):
+     #known patterns
+        #John Doe/Jane Doe/Jenny Doe
+        #John Doe & Jane Doe
+        #John Doe and Jane Doe
+        #John Doe und Jane Doe
+        #John Doe; Jane Doe; Jenny Doe
+        #John Doe, Jane Doe, Jenny Doe
+        #John Doe, Jane Doe & Jenny Doe
+        #John Doe, Jane Doe and Jenny Doe
+
+        #if author in bad_names:
+        #    parts = author.split(",")
+        #    author = "{} {}".format(parts[1], parts[0]).strip()
+        authors = []
+        authors_str = self.clean_authors_str(authors_str)
+        authors_str = " ".join(authors_str.split()).strip()
+        parts = []
+        if authors_str.startswith("and "):
+            authors_str = authors_str[3:].strip()
+
+        if "/" in authors_str:
+            parts = authors_str.split("/")
+        elif ";" in authors_str:
+            parts = authors_str.split(";")
+        elif "," in authors_str:
+            parts = authors_str.split(",")
+        else:
+            parts = [authors_str]
+
+        for part in parts:
+            part = part.replace(" and ", "&")
+            part = part.replace("&amp;", "&")
+            part = part.replace(" und ", "&")
+            part_parts = part.split("&")
+            authors = authors + part_parts
+
+        authors = list(map(str.strip, authors)) 
+        authors = list(filter(None, authors))
+        if len(authors) == 0:
+            if fallback_author != '':
+                authors.append(fallback_author)
+        return authors
+
+    def clean_authors_str(self, authors_str):        
+        bad_strs = [
+            "Konferenzbericht von",
+            "(Université Grenoble Alpes)",
+            "mit Unterstützung von Julia Collazo, Paul Schneeberger und Jeruna Tiemann"]
+        for bad_str in bad_strs:
+            authors_str = authors_str.replace(bad_str, "").strip()
+
+        return authors_str
+
+
+    def get_citations(self):
+        citations = []
+        els = self.soup.select('li.Bibliography')
+        for el in els:
+            citation = el.get_text()
+            citation = " ".join(citation.split()).strip()
+            if citation.strip() == "":
+                continue
+            elif citation.lower().startswith(("reference")):
+                continue
+            citations.append(citation)
+
+        return citations
+
+    def get_html(self):
+        if self.status_code != 200:
+            return ""
+        html_template = """<!DOCTYPE html><html><head>
+                           <link rel="stylesheet" href="../../../../../public/site/ijpp_html.css" />
+                           <script src="../../../../../public/site/ijpp_html.js" />
+                           </head><body><span /></body></html>"""
+        template = BeautifulSoup(html_template, 'html.parser')
+
+
+        content_box = self.soup.select('div.text')[0]
+        bibcite_els = self.soup.select("p.bibcite")
+        for bibcite_el in bibcite_els:
+            bibcite_el.decompose()
+
+        backlink_els = self.soup.select("a.backlink")
+        for backlink_el in backlink_els:
+            backlink_el.decompose()
+            
+        toc_els = self.soup.select('div.art-toc')
+        if len(toc_els) > 0:
+            toc = toc_els[0]
+        
+            toc_lis = toc.select("li")
+            if len(toc_lis) > 0:
+                abstract = content_box.select("div.abstract")
+                affilition = content_box.select("div.affilition")
+                author = content_box.select("h2.Author")
+                alt_tile = content_box.select("h2.Heading1")
+                title = content_box.select("h1.Title")
+                
+                if len(abstract) > 0:
+                    insert_after_tag = abstract[0]
+                elif len(affilition) > 0:
+                    insert_after_tag = affiliation[0]
+                elif len(author) > 0:
+                    insert_after_tag = author[0]
+                elif len(title) > 0:
+                    insert_after_tag = title[0]
+                elif len(alt_title) > 0:
+                    insert_after_tag = alt_title[0]
+                else:
+                    raise("Error: insertion point not found for table of contents")
+                
+                insert_after_tag.insert_after(toc)
+
+        for img in content_box.find_all('img'):
+            if "src" not in img.attrs:
+                continue   
+            img_url = self.get_absolute_url(img["src"])
+            print("########################## {0}".format(img_url))
+            # horrible hack for broken image
+            bad_images = {
+                "http://research.ucc.ie/boolean/2011/00/Murray/35/35-Murray-2011-00-en/media/image3.png":
+                "http://ojs.ucc.ie/public/site/boolean_covers/2011-35_image3.png"
+            }
+            if img_url in bad_images:
+                img_url = bad_images[img_url]
+            image_req = requests.get(img_url)
+            if image_req.status_code != 200:
+                if  "web.archive.org" in img_url:
+                    orig_img_url = "http://{}".format(img_url.split("//")[2])
+                    image_req = requests.get(orig_img_url)
+                    print("retrying image download from original: {}".format(orig_img_url))
+                    if image_req.status_code != 200:
+                        raise Exception("Unable to download image {0} from research.ucc.ie or from {1}".format(img_url, self.page_url))
+                else:        
+                    raise Exception("Unable to download image {0} for page {1}".format(img_url, self.page_url))
+            image_data = image_req.content
+
+            mimetype = mimetypes.guess_type(img_url)[0]
+            img['src'] = "data:%s;base64,%s" % (mimetype, base64.b64encode(image_data).decode('utf-8'))
+
+
+        body = template.find("body")
+        body.append(content_box)
         return template

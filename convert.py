@@ -15,17 +15,23 @@ if __name__ == '__main__':
     type = args['type']
     
     if type == "journal":
-        dspace_job = xmet.DspaceJob(input_file)
-        dspace_job.generate()
+        #dspace_job = xmet.DspaceJob(input_file)
+        #dspace_job.generate()
 
-        crossref_job = xmet.CrossRefJournalJob(input_file)
-        crossref_job.generate()
+        #crossref_job = xmet.CrossRefJournalJob(input_file)
+        #crossref_job.generate()
 
         if journal == "scenario":
             ojs_job = xmet.OjsScenarioJob(input_file)
             ojs_job.generate()
         elif journal == "boolean":
             ojs_job = xmet.OjsBooleanJob(input_file)
+            ojs_job.generate()
+        elif journal == "chimera":
+            ojs_job = xmet.OjsChimeraJob(input_file)
+            ojs_job.generate()
+        elif journal == "ijpp":
+            ojs_job = xmet.OjsIjppJob(input_file)
             ojs_job.generate()
     elif type == "conference":
         crossref_job = xmet.CrossRefConferenceJob(input_file)
