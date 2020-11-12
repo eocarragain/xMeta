@@ -925,13 +925,15 @@ class OjsJob(genericJob):
         filename = "{0}_{1}_{2}.{3}".format(filename_base, type, lang, type)
         if type == "html":
             filetype = "text/html"
+        elif type == "docx":
+            filetype = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
         else:
             filetype = "application/pdf"
 
         sub = {
             "@attrs": {
                     "xmlns:xsi": "http://www.w3.org/2001/XMLSchema-instance",
-                    "stage": "submission",
+                    "stage": "production_ready",
                     "id": id,
                     "xsi:schemaLocation": "http://pkp.sfu.ca native.xsd"
             },
@@ -1336,8 +1338,10 @@ class OjsJob(genericJob):
                 },
                 "pdf_file_en": {},
                 "html_file_en": {},
+                "docx_file_en": {},
                 "pdf_file_de": {},
                 "html_file_de": {},
+                "docx_file_de": {},
                 "publication": {
                     "@attrs": {
                         "xmlns:xsi": "http://www.w3.org/2001/XMLSchema-instance",
@@ -1435,10 +1439,17 @@ class OjsJob(genericJob):
         pdf_id = str(int(article_no) + 100) # todo
         article[article_id]["pdf_file_{0}".format(language)] = self.get_submission_file("pdf", pdf_id, pdf_b64, filename_base, language)
         article[article_id]["publication"]["pdf_galley_{0}".format(language)] = self.get_galley("pdf", pdf_id, language)
+        
         html_b64 = art_obj.get_encoded_html()
         html_id = str(int(article_no) + 200) # todo
         article[article_id]["html_file_{0}".format(language)] = self.get_submission_file("html", html_id, html_b64, filename_base, language)
         article[article_id]["publication"]["html_galley_{0}".format(language)] = self.get_galley("html", html_id, language)
+
+        # submission file only for docx
+        docx_b64 = art_obj.get_encoded_docx()
+        docx_id = str(int(article_no) + 300) # todo 
+        article[article_id]["docx_file_{0}".format(language)] = self.get_submission_file("docx", docx_id, docx_b64, filename_base, language)
+
 
         if secondary_language == True:
             #scen = scenario.parseScenario(secondary_language_url)
@@ -1448,10 +1459,16 @@ class OjsJob(genericJob):
             other_language = "de"
             article[article_id]["pdf_file_{0}".format(other_language)] = self.get_submission_file("pdf", pdf_id, pdf_b64, filename_base, other_language)
             article[article_id]["publication"]["pdf_galley_{0}".format(other_language)] = self.get_galley("pdf", pdf_id, other_language)
+            
             html_b64 = art_obj_de.get_encoded_html()
             html_id = str(int(article_no) + 2000) # todo
             article[article_id]["html_file_{0}".format(other_language)] = self.get_submission_file("html", html_id, html_b64, filename_base, other_language)
             article[article_id]["publication"]["html_galley_{0}".format(other_language)] = self.get_galley("html", html_id, other_language)
+
+            # submission file only for docx
+            docx_b64 = art_obj_de.get_encoded_docx()
+            docx_id = str(int(article_no) + 3000) # todo
+            article[article_id]["docx_file_{0}".format(other_language)] = self.get_submission_file("docx", docx_id, docx_b64, filename_base, other_language)
 
         if language == "en":
             if secondary_language == False:
@@ -1459,11 +1476,13 @@ class OjsJob(genericJob):
                 del article[article_id]["publication"]["pdf_galley_de"]
                 del article[article_id]["html_file_de"]
                 del article[article_id]["publication"]["html_galley_de"]
+                del article[article_id]["docx_file_de"]
         else:
             del article[article_id]["pdf_file_en"]
             del article[article_id]["publication"]["pdf_galley_en"]
             del article[article_id]["html_file_en"]
-            del article[article_id]["publication"]["html_galley_en"]            
+            del article[article_id]["publication"]["html_galley_en"]
+            del article[article_id]["docx_file_en"]            
 
         if art_obj.status_code != 200:
             del article[article_id]["html_file_en"]

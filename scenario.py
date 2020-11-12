@@ -687,6 +687,7 @@ class parseArticle():
         self.doi = self.get_doi()
         #self.pages = self.get_pages()
         self.url_key = self.normalise_url_key(self.page_url)
+        self.journal_abbrev = "generic_journal"
 
     def get_issue_obj(self):
         return parseIssue(self.issue_url)
@@ -752,7 +753,7 @@ class parseArticle():
                 else:
                     print("Warning: failed to load from wayback: {}".format(wb_url))
         
-        fallback_url = self.get_fallback_url()
+        fallback_url = self.get_fallback_url('html')
         if len(fallback_url) > 0:
             fallback_req = requests.get(fallback_url)
             if fallback_req.status_code == 200:
@@ -764,14 +765,41 @@ class parseArticle():
         raise Exception("Failed to load html for {0}".format(self.page_url))
         return req.text
 
-    def get_fallback_url(side):
-        return ""
+    def get_fallback_url(self, ext):
+        url_parts = self.page_url.rsplit("/", 5)
+        journal = self.journal_abbrev
+
+        alt_filename = "{0}-{1}-{2}-{3}-{4}.{5}".format(
+            url_parts[-2], #art_id
+            url_parts[-3], #name
+            url_parts[-5], #year
+            url_parts[-4], #issue, ie. 00
+            url_parts[-1], #lang
+            ext            #extension
+        )
+
+        base_url = "http://ojs.ucc.ie/public/site/{}_covers/{}_docs".format(journal, journal)
+        fallback_url = "{0}/{1}-{2}/{3}".format(base_url, url_parts[-5], url_parts[-4], alt_filename)  
+        return fallback_url
 
     def get_wayback_api_url(self, journal_url):
         return "http://archive.org/wayback/available?url={}".format(journal_url)
 
-    #def get_pdf(self):
-        #todo
+    def get_pdf(self):
+        return self.get_fallback_content("pdf")
+
+    def get_docx(self):
+        return self.get_fallback_content("docx")
+
+    def get_html(self):
+        return self.get_fallback_content("html")
+
+    def get_fallback_content(self, ext):
+        url = self.get_fallback_url(ext)
+        req = requests.get(url)
+        if req.status_code == 200:
+            return req.content
+        raise Exception("Failed to load {0} for {1} from {2}".format(ext, self.page_url, url))
 
     def get_toc_elements(self):
         url = self.strip_wayback(self.page_url)
@@ -846,6 +874,9 @@ class parseArticle():
     def get_citations(self):
         return []
 
+    def get_encoded_docx(self):
+        return base64.b64encode(self.get_docx()).decode('utf-8')
+
     def get_encoded_pdf(self):
         return base64.b64encode(self.get_pdf()).decode('utf-8')
 
@@ -872,8 +903,6 @@ class parseArticle():
             orig_url = url
         return orig_url
 
-    def get_html(self):
-        return ""
 
 class parseBoolean(parseArticle):
     def __init__(self, issue_url):
@@ -881,6 +910,7 @@ class parseBoolean(parseArticle):
         self.issue = self.get_issue_obj() 
         self.title = self.get_title()
         self.doi = self.get_doi()
+        self.journal_abbrev = "boolean"
         #self.pages = self.get_pages()
 
     def has_doi(self):
@@ -1074,6 +1104,7 @@ class parseScenario(parseArticle):
         self.issue = self.get_issue_obj()
         self.title = self.get_title()
         self.doi = self.get_doi()
+        self.journal_abbrev = "scenario"
         #self.pages = self.get_pages()
 
     def get_issue_obj(self):
@@ -1552,6 +1583,7 @@ class parseChimera(parseArticle):
         parseArticle.__init__(self, issue_url)
         self.title = self.get_title()
         self.doi = self.get_doi()
+        self.journal_abbrev = "chimera"
         #self.pages = self.get_pages()
 
     def has_doi(self):
@@ -1739,40 +1771,13 @@ class parseIjpp(parseArticle):
         self.doi = self.get_doi()
         #self.pages = {}
         self.utils = fetchutils.fetchUtils("contribs_ijpp.xlsx")
+        self.journal_abbrev = "ijpp"
 
     def has_doi(self):
         return True
 
     def get_issue_obj(self):
         return parseIjppIssue(self.issue_url)
-
-    def build_fallback_urls(self, ext="pdf"):
-        url_parts = self.page_url.rsplit("/", 5)
-
-        alt_filename = "{0}-{1}-{2}-{3}-{4}.{5}".format(
-            url_parts[-2], #art_id
-            url_parts[-3], #name
-            url_parts[-5], #year
-            url_parts[-4], #issue, ie. 00
-            url_parts[-1], #lang
-            ext            #extension
-        )
-
-        base_url = "http://ojs.ucc.ie/public/site/ijpp_covers/ijpp_docs"
-        fallback_url = "{0}/{1}-{2}/{3}".format(base_url, url_parts[-5], url_parts[-4], alt_filename)  
-        return fallback_url
-
-    def get_fallback_url(self):
-        return self.build_fallback_urls("html")
-
-    def get_pdf(self):
-        pdf_url = self.build_fallback_urls("pdf")
-        print(pdf_url)
-        req = requests.get(pdf_url)
-        if req.status_code == 200:
-            return req.content
-
-        raise Exception("Failed to load pdf for {0}".format(self.page_url))
 
     def get_pages(self):
         issue_pages = self.issue.get_issue_pages()
@@ -1985,7 +1990,6 @@ class parseIjpp(parseArticle):
                            <script src="../../../../../public/site/ijpp_html.js" />
                            </head><body><span /></body></html>"""
         template = BeautifulSoup(html_template, 'html.parser')
-
 
         content_box = self.soup.select('div.text')[0]
         bibcite_els = self.soup.select("p.bibcite")
