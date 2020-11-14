@@ -676,6 +676,8 @@ class parseScenarioIssue(parseIssue):
 
 class parseArticle():
     def __init__(self, url):
+        self.journal_abbrev = self.get_journal_abbrev()
+        self.docx_ext = "docx"
         self.page_url = url.strip()   
         req = requests.get(self.page_url)
         self.page = self.get_page(req)
@@ -687,7 +689,10 @@ class parseArticle():
         self.doi = self.get_doi()
         #self.pages = self.get_pages()
         self.url_key = self.normalise_url_key(self.page_url)
-        self.journal_abbrev = "generic_journal"
+        
+
+    def get_journal_abbrev(self):
+        return "generic_journal"
 
     def get_issue_obj(self):
         return parseIssue(self.issue_url)
@@ -789,16 +794,33 @@ class parseArticle():
         return self.get_fallback_content("pdf")
 
     def get_docx(self):
-        return self.get_fallback_content("docx")
+        return self.get_fallback_content("docx", "xml")
 
     def get_html(self):
         return self.get_fallback_content("html")
 
-    def get_fallback_content(self, ext):
+    def get_encoded_docx(self):
+        return base64.b64encode(self.get_docx()).decode('utf-8')
+
+    def get_encoded_pdf(self):
+        return base64.b64encode(self.get_pdf()).decode('utf-8')
+
+    def get_encoded_html(self):
+        return base64.b64encode(self.get_html().encode('ascii')).decode('utf-8')
+
+    def get_fallback_content(self, ext, alt_ext=""):
         url = self.get_fallback_url(ext)
         req = requests.get(url)
         if req.status_code == 200:
             return req.content
+        
+        if alt_ext != "":
+            url = self.get_fallback_url(alt_ext)
+            req = requests.get(url)
+            if req.status_code == 200:
+                if ext == "docx" and alt_ext == "xml":
+                    self.docx_ext = "xml"
+                return req.content            
         raise Exception("Failed to load {0} for {1} from {2}".format(ext, self.page_url, url))
 
     def get_toc_elements(self):
@@ -874,15 +896,6 @@ class parseArticle():
     def get_citations(self):
         return []
 
-    def get_encoded_docx(self):
-        return base64.b64encode(self.get_docx()).decode('utf-8')
-
-    def get_encoded_pdf(self):
-        return base64.b64encode(self.get_pdf()).decode('utf-8')
-
-    def get_encoded_html(self):
-        return base64.b64encode(self.get_html().encode('ascii')).decode('utf-8')
-
     def get_absolute_url(self, frag):
         if frag.startswith("http"):
             url = frag
@@ -910,8 +923,11 @@ class parseBoolean(parseArticle):
         self.issue = self.get_issue_obj() 
         self.title = self.get_title()
         self.doi = self.get_doi()
-        self.journal_abbrev = "boolean"
+        #self.journal_abbrev = "boolean"
         #self.pages = self.get_pages()
+
+    def get_journal_abbrev(self):
+        return "boolean"
 
     def has_doi(self):
         return True
@@ -1104,8 +1120,11 @@ class parseScenario(parseArticle):
         self.issue = self.get_issue_obj()
         self.title = self.get_title()
         self.doi = self.get_doi()
-        self.journal_abbrev = "scenario"
+        #self.journal_abbrev = "scenario"
         #self.pages = self.get_pages()
+
+    def get_journal_abbrev(self):
+        return "scenario"
 
     def get_issue_obj(self):
         return parseScenarioIssue(self.issue_url)
@@ -1476,6 +1495,21 @@ class parseScenario(parseArticle):
         metadata.append(citation)
         metadata.append(cc)
         content_box = self.soup.select("div.content")[0]
+        
+        scbibs = content_box.find_all(lambda tag:tag.name=="p" and "[SCBibliograpySection]" in tag.text)
+        for scbib in scbibs:
+            scbib["class"] = "SCBibliograpySection"
+            orig_text = scbib.get_text().strip()
+            new_text = orig_text.replace("[SCBibliograpySection]", "").strip()
+            scbib.string = new_text
+
+        listbullets = content_box.find_all(lambda tag:tag.name=="p" and "[ListBullet]" in tag.text)
+        for listbullet in listbullets:
+            listbullet["class"] = "ListBullet"
+            orig_text = listbullet.get_text().strip()
+            new_text = orig_text.replace("[ListBullet]", "").strip()
+            listbullet.string = new_text
+
         if len(self.soup.select("ol.toc")) > 0:
             toc = self.soup.select("ol.toc")[0]
             if len(toc.get_text().strip()) > 0: 
@@ -1576,6 +1610,7 @@ class parseScenario(parseArticle):
         cc_bottom["id"] = "cc_bottom"
         cc_bottom.string = cc_statement
         body.append(cc_bottom)
+        print(template)
         return template
 
 class parseChimera(parseArticle):
@@ -1583,8 +1618,11 @@ class parseChimera(parseArticle):
         parseArticle.__init__(self, issue_url)
         self.title = self.get_title()
         self.doi = self.get_doi()
-        self.journal_abbrev = "chimera"
+        #self.journal_abbrev = "chimera"
         #self.pages = self.get_pages()
+
+    def get_journal_abbrev(self):
+        return "chimera"
 
     def has_doi(self):
         return True
@@ -1771,7 +1809,10 @@ class parseIjpp(parseArticle):
         self.doi = self.get_doi()
         #self.pages = {}
         self.utils = fetchutils.fetchUtils("contribs_ijpp.xlsx")
-        self.journal_abbrev = "ijpp"
+        #self.journal_abbrev = "ijpp"
+
+    def get_journal_abbrev(self):
+        return "ijpp"
 
     def has_doi(self):
         return True

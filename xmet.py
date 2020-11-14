@@ -927,6 +927,8 @@ class OjsJob(genericJob):
             filetype = "text/html"
         elif type == "docx":
             filetype = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        elif type == "xml":
+            filetype = "application/xml"
         else:
             filetype = "application/pdf"
 
@@ -1447,8 +1449,9 @@ class OjsJob(genericJob):
 
         # submission file only for docx
         docx_b64 = art_obj.get_encoded_docx()
+        docx_ext = art_obj.docx_ext
         docx_id = str(int(article_no) + 300) # todo 
-        article[article_id]["docx_file_{0}".format(language)] = self.get_submission_file("docx", docx_id, docx_b64, filename_base, language)
+        article[article_id]["docx_file_{0}".format(language)] = self.get_submission_file(docx_ext, docx_id, docx_b64, filename_base, language)
 
 
         if secondary_language == True:
