@@ -25,6 +25,13 @@ class parseIssue():
         self.cache_folder = self.get_cache_folder()
         self.create_cache_folder()
 
+    # dry this out
+    def normalise_url_key(self, url):
+        url = url.replace("publish.ucc.ie", "research.ucc.ie")
+        url = url.replace("research.ucc.ie:80", "research.ucc.ie")
+        url = url.lower()
+        return url
+
     def get_cache_folder(self):
         cwd = os.getcwd()
         cache_folder = os.path.join(cwd, ".cache")
@@ -67,8 +74,12 @@ class parseIssue():
         return req.text
 
     #todo dry this out. 
-    def get_wayback_api_url(self, journal_url):
-        return "http://archive.org/wayback/available?url={}".format(journal_url)
+    def get_wayback_api_url(self, journal_url, date=""):
+        if date == "":
+            wb_api_url = "http://archive.org/wayback/available?url={}".format(journal_url)
+        else:
+            wb_api_url = "http://archive.org/wayback/available?url={0}&timestamp={1}".format(journal_url, date)
+        return wb_api_url
 
 
     #todo dry this out. duplicate of xmet.py
@@ -237,8 +248,8 @@ class parseBooleanIssue(parseIssue):
                 "url": url_html,
                 "pdf": url_html.replace("/boolean/", "/boolean/pdf/")
             }
-
-            articles[url_html.lower()] = article
+            url_key = self.normalise_url_key(url_html)
+            articles[url_key] = article
         return articles
 
     def get_unique_article_urls(self):
@@ -313,13 +324,6 @@ class parseIjppIssue(parseIssue):
             "2012-01": ["Séamus Ó Tuama", "Tom O’Connor"]
         }
         return editors[key]
-
-    # dry this out
-    def normalise_url_key(self, url):
-        url = url.replace("publish.ucc.ie", "research.ucc.ie")
-        url = url.replace("research.ucc.ie:80", "research.ucc.ie")
-        url = url.lower()
-        return url
 
     def get_article_obj(self, url):
         return parseIjpp(url)
@@ -428,7 +432,6 @@ class parseIjppIssue(parseIssue):
                 "section": section_ref
             }
             url_key = self.normalise_url_key(url_html)
-
             articles[url_key] = article
         return articles
 
@@ -535,7 +538,8 @@ class parseScenarioIssue(parseIssue):
                 "pdf": url_pdf
             }
 
-            articles[url_html.lower()] = article
+            url_key = self.normalise_url_key(url_html)
+            articles[url_key] = article
 
         return articles
 
@@ -689,7 +693,23 @@ class parseArticle():
         self.doi = self.get_doi()
         #self.pages = self.get_pages()
         self.url_key = self.normalise_url_key(self.page_url)
-        
+
+    def get_pub_date_str(self):
+        url_parts = self.page_url.rsplit("/", 5)
+        issue_no = url_parts[-4]
+        year = url_parts[-5]
+        if issue_no == "01":
+            month = "01"
+        else:
+            month = "07"    
+        return "{0}-{1}-01".format(year, month) 
+
+    def get_date_from_wb_url(self, wb_url):
+        fd = wb_url.split("/")[4]
+        if len(fd) == 14 and fd.isnumeric():
+            return "{0}-{1}-{2}".format(fd[0:4], fd[4:6], fd[6:8])
+        else:
+            raise Exception("Unexpected format of wayback url in get_date_from_wb_url()")
 
     def get_journal_abbrev(self):
         return "generic_journal"
@@ -787,8 +807,13 @@ class parseArticle():
         fallback_url = "{0}/{1}-{2}/{3}".format(base_url, url_parts[-5], url_parts[-4], alt_filename)  
         return fallback_url
 
-    def get_wayback_api_url(self, journal_url):
-        return "http://archive.org/wayback/available?url={}".format(journal_url)
+    #todo dry this out. 
+    def get_wayback_api_url(self, journal_url, date=""):
+        if date == "":
+            wb_api_url = "http://archive.org/wayback/available?url={}".format(journal_url)
+        else:
+            wb_api_url = "http://archive.org/wayback/available?url={0}&timestamp={1}".format(journal_url, date)
+        return wb_api_url
 
     def get_pdf(self):
         return self.get_fallback_content("pdf")
@@ -1452,18 +1477,70 @@ class parseScenario(parseArticle):
         content_box = self.soup.select("div.content")[0]
         for a in content_box.find_all('a'):
             if "href" in a.attrs:
-                if a["href"].startswith("#"):
+                link = a["href"]
+                if link.startswith("#"):
                     continue
-                url = self.get_absolute_url(a["href"])
-                url = self.strip_wb(url)
-                links[url] = {"link_type": "a", "page_url": self.page_url, "text": a.get_text(), "url": url}
+                skip_domains = ["research.ucc.ie", "publish.ucc.ie", "doi.org", "handle.net", "mailto:"]
+                ab_url = self.get_absolute_url(link)
+                ab_url = self.strip_wayback(ab_url)
+                final_url = ab_url
+                if any(skip_domain in ab_url for skip_domain in skip_domains):
+                    continue
+
+                print("Link found in {0}: {1}".format(self.page_url, ab_url)) 
+                try:
+                    ab_url_resp = requests.get(ab_url)
+                    ab_url_status = ab_url_resp.status_code
+                    if len(ab_url_resp.history) > 0:
+                        first_status = ab_url_resp.history[0].status_code
+                        final_url = ab_url_resp.url
+                    else:
+                        first_status = ab_url_status
+                except:
+                    #print(ab_url_resp.history)
+                    print("Error fetching url {}".format(ab_url))
+                    ab_url_status = 500
+                    first_status = 500
+                wayback = ""
+                wayback_status = ""
+                wayback_first_status = ""
+                date = self.get_pub_date_str().replace("-", "")
+                wb_api_url = self.get_wayback_api_url(ab_url, date)
+                
+                try:
+                    wb_api_resp = requests.get(wb_api_url).json()
+                    if wb_api_resp["archived_snapshots"] != {}:
+                        wb_url = wb_api_resp["archived_snapshots"]["closest"]["url"]
+                        if wb_api_resp["archived_snapshots"]["closest"]["status"] == "200":
+                            wayback = wb_url
+                            wayback_status = 200
+                            wayback_first_status = 200
+                        else:
+                            wayback = wb_url
+                            wayback_status = int(wb_api_resp["archived_snapshots"]["closest"]["status"])
+                            wayback_first_status = wayback_status                           
+                except:
+                    print("Failed to check wayback {}".format(wb_api_url))
+                
+                links[ab_url] = {
+                    "link_type": "a", 
+                    "page_url": self.page_url, 
+                    "text": a.get_text(), 
+                    "url": ab_url,
+                    "final_url" : final_url, 
+                    "url_status": ab_url_status, 
+                    "first_status": first_status, 
+                    "wayback": wayback,
+                    "wayback_status": wayback_status, #todo
+                    "wayback_first_status": wayback_first_status
+                } 
 
         for src_type in src_types:
             for el in content_box.find_all(src_type):
                 if "src" in el.attrs:
                     url = self.get_absolute_url(el["src"])
                     url = self.strip_wb(url)
-                    links[url] = {"link_type": "src", "page_url": self.page_url, "text": a.get_text(), "url": url}
+                    links[url] = {"link_type": "src", "page_url": self.page_url, "text": a.get_text(), "url": url, "final_url": url, "url_status": 200, "first_status": 200, "wayback": "", "wayback_status": "", "wayback_first_status": ""}
         return links
 
     def get_html(self):
@@ -1510,6 +1587,13 @@ class parseScenario(parseArticle):
             new_text = orig_text.replace("[ListBullet]", "").strip()
             listbullet.string = new_text
 
+        aufs = content_box.find_all(lambda tag:tag.name=="p" and "[Aufzhlungszeichen1]" in tag.text)
+        for auf in aufs:
+            auf["class"] = "Aufzhlungszeichen1"
+            orig_text = auf.get_text().strip()
+            new_text = orig_text.replace("[Aufzhlungszeichen1]", "").strip()
+            auf.string = new_text
+
         if len(self.soup.select("ol.toc")) > 0:
             toc = self.soup.select("ol.toc")[0]
             if len(toc.get_text().strip()) > 0: 
@@ -1544,7 +1628,9 @@ class parseScenario(parseArticle):
                 "http://research.ucc.ie/scenario/2010/02/donnery/03/en/image7.png image9.png image6.png image8.png image4.png image5.png" : "http://ojs.ucc.ie/public/site/scenario_covers/2010-02-03_images.png",
                 "http://research.ucc.ie/scenario/2015/01/Berghoff/05/de/media/image3.jpeg": "http://ojs.ucc.ie/public/site/scenario_covers/2015-01-05_image3.jpeg",
                 "http://research.ucc.ie/scenario/2019/02/VillanuevaOSullivan/06/en/media/image3.jpg media/image4.jpg": "http://ojs.ucc.ie/public/site/scenario_covers/2019-02-06_image3.png",
-                "http://research.ucc.ie/scenario/2019/02/VillanuevaOSullivan/06/en/media/image3.jpg%20media/image4.jpg": "http://ojs.ucc.ie/public/site/scenario_covers/2019-02-06_image3.png"
+                "http://research.ucc.ie/scenario/2019/02/VillanuevaOSullivan/06/en/media/image3.jpg%20media/image4.jpg": "http://ojs.ucc.ie/public/site/scenario_covers/2019-02-06_image3.png",
+                "https://web.archive.org/web/20161218173420im_/http:/research.ucc.ie/scenario/2007/02/hajduk/05/de/": "http://ojs.ucc.ie/public/site/scenario_covers/2007-02-05_image1.png",
+                "http:/research.ucc.ie/scenario/2007/02/hajduk/05/de/": "http://ojs.ucc.ie/public/site/scenario_covers/2007-02-05_image1.png"
             }
             if img_url in bad_images:
                 img_url = bad_images[img_url]
@@ -1566,14 +1652,8 @@ class parseScenario(parseArticle):
             # parent a tag
             parent = img.parent
             if parent.name == "a":
-                if "target" in parent.attrs:
-                    del parent["target"]
-
-                if "title" in parent.attrs:
-                    del parent["title"]
-
-                if "href" in parent.attrs:
-                    parent["href"] = "#"
+                parent.attrs.clear()
+                parent.name = "span"
 
         media = [
             "en/04-retzlaff-2008-01-en/04-retzlaff-2008-01-en-p1.pdf",
@@ -1587,21 +1667,38 @@ class parseScenario(parseArticle):
         for a in content_box.find_all('a'):
             if "href" not in a.attrs:
                 continue
-            link = a["href"]
-            if link.strip() in media:
-                ab_url = self.get_absolute_url(link)
-                wb_api_url = self.get_wayback_api_url(ab_url)
-                wb_api_resp = requests.get(wb_api_url).json()
-                if wb_api_resp["archived_snapshots"] != {}:
-                    wb_url = wb_api_resp["archived_snapshots"]["closest"]["url"]
-                    if wb_api_resp["archived_snapshots"]["closest"]["status"] == "200":
-                        a["href"] = wb_url
-                    else:
-                        raise Exception("No wayback snapshot found for {0} from {1}".format(ab_url, self.page_url))
+            link = a["href"].strip()
+            if link.startswith("#"):
+                continue
+            if "mailto:" in link:
+                continue
+            link_parts = link.split(" ")
+            if len(link_parts) > 1:
+                if link_parts[1].strip().startswith("http"):
+                    link = link_parts[0]
+
+            skip_domains = ["research.ucc.ie", "publish.ucc.ie", "doi.org", "handle.net"]
+            #if link in media:
+            ab_url = self.get_absolute_url(link)
+            ab_url = self.strip_wayback(ab_url)
+            if any(skip_domain in ab_url for skip_domain in skip_domains):
+                if any(media_link in ab_url for media_link in media):
+                    print("using wayback for local media")
+                else:   
+                    continue
+            date = self.get_pub_date_str().replace("-", "")
+            wb_api_url = self.get_wayback_api_url(ab_url, date)
+            wb_api_resp = requests.get(wb_api_url).json()
+            if wb_api_resp["archived_snapshots"] != {}:
+                wb_url = wb_api_resp["archived_snapshots"]["closest"]["url"]
+                if wb_api_resp["archived_snapshots"]["closest"]["status"] == "200":
+                    a["href"] = wb_url
+                    a["data-originalurl"] = ab_url
+                    a["data-versiondate"] = self.get_date_from_wb_url(wb_url)
                 else:
-                    raise Exception("No wayback snapshot found for {0} from {1}".format(ab_url, self.page_url))
-
-
+                    print("WARNING: No wayback snapshot found for {0} from {1}".format(ab_url, self.page_url))
+            else:
+                print("WARNING: No wayback snapshot found for {0} from {1}".format(ab_url, self.page_url))
 
         body = template.find("body")
         body.append(content_box)
@@ -1610,7 +1707,7 @@ class parseScenario(parseArticle):
         cc_bottom["id"] = "cc_bottom"
         cc_bottom.string = cc_statement
         body.append(cc_bottom)
-        print(template)
+        #print(template)
         return template
 
 class parseChimera(parseArticle):
