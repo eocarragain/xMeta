@@ -21,20 +21,20 @@ for page in pdf.pages:
     l = 0
     for line in lines:
         #print (page.extractText()[-200:])
-        pattern = re.compile("\d{2}-\D+-\d{4}-\d{2}-(en|de)", re.IGNORECASE)
+        pattern = re.compile(r"\d{2}-\D+-\d{4}-\d{2}-(en|de)", re.IGNORECASE)
         if pattern.match(line):
-            page_print = lines[l-1].strip()
+            page_label = lines[l-1].strip()
             print(p)
-            print(page_print)
+            print(page_label)
             print(line)
-            if page_print.isnumeric():
-                if p - int(page_print) != 5:
+            if page_label.isnumeric():
+                if p - int(page_label) != 5:
                     print("@@@@@@@@@@@@@@@ warning ")
             id = line.lower().strip()
             end_pages[id] = {
                 "id" : id,
-                "page_count": p,
-                "page_print": page_print
+                "end_page_seq": p,
+                "end_page_label": page_label
             }
         l += 1
     p += 1

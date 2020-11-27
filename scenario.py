@@ -12,6 +12,7 @@ import re
 import fetchutils
 import json
 import os
+import utils
 
 
 class parseIssue():
@@ -189,6 +190,10 @@ class parseIssue():
 
     def get_section_ref(self, toc_section="article", toc_title="title"):
         return 'ART'
+
+    def get_end_page_info_from_pdf(self):
+        end_page_info = utils.get_end_page_info_from_pdf(self.get_issue_galley())
+        return end_page_info
 
 class parseBooleanIssue(parseIssue):
     def get_volume(self):
@@ -694,6 +699,10 @@ class parseArticle():
         #self.pages = self.get_pages()
         self.url_key = self.normalise_url_key(self.page_url)
 
+    def get_end_page_info_from_pdf(self):
+        end_page_info = utils.get_end_page_info_from_pdf(self.get_pdf())
+        return end_page_info
+
     def get_pub_date_str(self):
         url_parts = self.page_url.rsplit("/", 5)
         issue_no = url_parts[-4]
@@ -880,9 +889,7 @@ class parseArticle():
 
     def get_pdf_page_count(self):
         # open pdf & get page count
-        pdf_file = io.BytesIO(self.get_pdf())
-        pdf_reader = pyPdf.PdfFileReader(pdf_file)
-        num_pages = int(pdf_reader.numPages)
+        num_pages = utils.get_pdf_page_count(self.get_pdf())         
         return num_pages
 
     def get_title_from_toc(self):
