@@ -191,11 +191,36 @@ class parseIssue():
     def get_section_ref(self, toc_section="article", toc_title="title"):
         return 'ART'
 
-    def get_end_page_info_from_pdf(self):
+    def get_journal_abbrev(self):
+        return "generic"
+
+    def get_end_page_info_from_pdf(self, try_cache = True):
+        year = self.get_year()
+        issue = self.get_issue()
+        journal = self.get_journal_abbrev()
+        cache_file = "{}_{}_{}_issue_end_pages.json".format(journal, year, issue)
+        cache_path = os.path.join(self.cache_folder, cache_file)
+
+        # load from cache if present
+        # todo - write this to a cache to avoid lots of http requests
+        if try_cache == True:
+            try:
+                with open(cache_path, 'r') as f:
+                    end_page_info = json.load(f)
+                    return end_page_info
+            except:
+                "INFO: Failed to load cache_file: {}".format(cache_file)
+
         end_page_info = utils.get_end_page_info_from_pdf(self.get_issue_galley())
+        with open(cache_path, 'w') as f:
+            json.dump(end_page_info, f)
+
         return end_page_info
 
 class parseBooleanIssue(parseIssue):
+    def get_journal_abbrev(self):
+        return "boolean"
+
     def get_volume(self):
         return False
 
@@ -277,9 +302,13 @@ class parseBooleanIssue(parseIssue):
         return issue_cover_path
 
 class parseIjppIssue(parseIssue):
+
     def __init__(self, issue_url):
         parseIssue.__init__(self, issue_url)
         self.section_mapping_wb = "ijpp_tocs.xlsx"
+
+    def get_journal_abbrev(self):
+        return "ijpp"
 
     def get_sections_as_dict(self):
         wb = self.section_mapping_wb
@@ -459,6 +488,9 @@ class parseScenarioIssue(parseIssue):
     def __init__(self, issue_url):
         parseIssue.__init__(self, issue_url)
         self.section_mapping_wb = "scenario_tocs.xlsx"
+
+    def get_journal_abbrev(self):
+        return "scenario"
 
     def get_issn(self):
         return "1649-8526"
@@ -798,6 +830,17 @@ class parseArticle():
         self.status_code = 500
         raise Exception("Failed to load html for {0}".format(self.page_url))
         return req.text
+
+    def get_art_pages_id(self):
+        url_parts = self.page_url.rsplit("/", 5)
+
+        art_pages_id = "{0}-{1}-{2}-{3}".format(
+            url_parts[-2], #art_id
+            url_parts[-5], #year
+            url_parts[-4], #issue, ie. 00
+            url_parts[-1], #lang
+        )
+        return art_pages_id       
 
     def get_fallback_url(self, ext):
         url_parts = self.page_url.rsplit("/", 5)
@@ -1146,12 +1189,13 @@ class parseBoolean(parseArticle):
         return template
 
 class parseScenario(parseArticle):
-    def __init__(self, issue_url):
+    def __init__(self, issue_url, pages_json_path = 'scenario_pages.json'):
         parseArticle.__init__(self, issue_url)
         self.meta_tags = self.get_meta_tags()
         self.issue = self.get_issue_obj()
         self.title = self.get_title()
         self.doi = self.get_doi()
+        self.pages_json = pages_json_path
         #self.journal_abbrev = "scenario"
         #self.pages = self.get_pages()
 
@@ -1176,20 +1220,32 @@ class parseScenario(parseArticle):
         non_ojs_meta = self.issue.get_section_meta_for_non_ojs(section_ref)
         mint_doi = non_ojs_meta["mint_doi"]
         return mint_doi
-        
+
+    def pdf_insert_doi(self, pdf_content)
+
     def get_pdf(self):
-        form_data = {}
-        f = self.soup.select("form")
-        form = self.soup.select("div.print > form")[0]
-        for child in form.descendants:
-            if "name" in child.attrs:
-                name = child["name"]
-                value = child["value"]
-                form_data[name] = value
-        response = requests.post("http://minerva2.ucc.ie/cgi-bin/uncgi/make.pdf", data=form_data)
-        if response.status_code != 200:
-            raise Exception("Failed to load pdf for {0}".format(self.page_url))
-        return response.content
+        # Try to load fallback content first (corrected pdfs)
+        url = self.get_fallback_url('pdf')
+        req = requests.get(url) 
+        if req.status_code == 200:
+            pdf_content = req.content
+        else:
+            form_data = {}
+            form = self.soup.select("div.print > form")[0]
+            for child in form.descendants:
+                if "name" in child.attrs:
+                    name = child["name"]
+                    value = child["value"]
+                    form_data[name] = value
+            response = requests.post("http://minerva2.ucc.ie/cgi-bin/uncgi/make.pdf", data=form_data)
+            if response.status_code != 200:
+                raise Exception("Failed to load pdf for {0}".format(self.page_url))
+            pdf_content = response.content
+        
+        # if item has a doi
+        if self.has_doi():
+            pdf_content = utils.pdf_insert_doi(pdf_content, self.doi)
+        return pdf_content
 
     def get_meta_tags(self):
         meta_tags = {}
@@ -1223,6 +1279,23 @@ class parseScenario(parseArticle):
         toc = self.get_toc_elements()
         return toc["start_page"]
 
+    def get_pages_dict(self):
+        pages_dict = {}
+        json_file = self.pages_json
+        with open(json_file, 'r') as f:
+            pages_dict = json.load(f)
+            return pages_dict
+
+    def get_pages(self):
+        pages = {}
+        pages_dict = self.get_pages_dict()
+        art_pages_id = self.get_art_pages_id()
+        if art_pages_id in pages_dict:
+            pages = pages_dict[art_pages_id] 
+        else:
+            raise Exception("Failed to load pages info for {}".format(art_pages_id))
+        return pages
+
     def get_start_page_from_ojs2(self):
         art_id = int(self.page_url.rsplit("/", 2)[1])
         art_id_str = str(art_id).rjust(2, '0')
@@ -1242,7 +1315,8 @@ class parseScenario(parseArticle):
             print("Failed to find key {} in issue pages".format(key))
             return False 
 
-    def get_pages(self):
+    def get_pages_from_ojs2(self):
+        # deprecated
         pages = {}
         start_page = self.get_start_page_from_ojs2()
         if start_page == False:

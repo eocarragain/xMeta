@@ -22,7 +22,9 @@ for page in pdf.pages:
     for line in lines:
         #print (page.extractText()[-200:])
         pattern = re.compile(r"\d{2}-\D+-\d{4}-\d{2}-(en|de)", re.IGNORECASE)
+        print (page.extractText()[-300:])
         if pattern.match(line):
+            
             page_label = lines[l-1].strip()
             print(p)
             print(page_label)
@@ -31,6 +33,8 @@ for page in pdf.pages:
                 if p - int(page_label) != 5:
                     print("@@@@@@@@@@@@@@@ warning ")
             id = line.lower().strip()
+            id_parts = id.split("-",2)
+            id = "{}-{}".format(id_parts[0], id_parts[2])
             end_pages[id] = {
                 "id" : id,
                 "end_page_seq": p,
