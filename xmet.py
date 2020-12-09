@@ -57,7 +57,7 @@ class genericJob():
                 self.volume_doi = self.get_valid_doi(volume_series['doi'])
             else:
                 self.volume_doi = ""
-            self.volume_number = str(int(volume_series['volume_number']))
+            self.volume_number = volume_series['volume_number']
             self.volume_url = volume_series['volume_url']
             if self.volume_number:        
                 self.has_volume = True
@@ -160,7 +160,6 @@ class genericJob():
                 "doi": self.volume_doi,
                 "resource": self.volume_url
             }
-
         return volume_metadata
 
     def get_citations(self, art_doi):
@@ -1470,8 +1469,9 @@ class OjsJob(genericJob):
 
             # submission file only for docx
             docx_b64 = art_obj_de.get_encoded_docx()
+            docx_ext = art_obj_de.docx_ext
             docx_id = str(int(article_no) + 3000) # todo
-            article[article_id]["docx_file_{0}".format(other_language)] = self.get_submission_file("docx", docx_id, docx_b64, filename_base, other_language)
+            article[article_id]["docx_file_{0}".format(other_language)] = self.get_submission_file(docx_ext, docx_id, docx_b64, filename_base, other_language)
 
         if language == "en":
             if secondary_language == False:

@@ -26,6 +26,11 @@ class parseIssue():
         self.cache_folder = self.get_cache_folder()
         self.create_cache_folder()
 
+    def get_issue_id(self):
+        url_parts = self.issue_url.rsplit("/", 2)
+        issue_id = "{}-{}".format(url_parts[-2], url_parts[-1])  
+        return issue_id   
+
     # dry this out
     def normalise_url_key(self, url):
         url = url.replace("publish.ucc.ie", "research.ucc.ie")
@@ -511,7 +516,20 @@ class parseScenarioIssue(parseIssue):
         return self.get_issue_year()["year"]
 
     def get_editors(self):
-        return ["Manfred Schewe", "Susanne Even"]
+        issue_id = self.get_issue_id()
+        guest_editors = {
+            "2017-02": ["Mandy Collins", "Dragan Miladinović"],
+            "2017-01": ["Erika Piazzoli", "Eucharia Donnery"],
+            "2015-02": ["Stefanie Giebert"],
+            "2014-02": ["Micha Fleiner", "Stefan Kriechbaumer"],
+            "2012-01": ["Almut Küppers", "Maik Walter"], 
+            "2010-01": ["Almut Küppers", "Carola Surkamp"], 
+        }
+        if issue_id in guest_editors:
+            editors = guest_editors[issue_id]
+        else:
+            editors = ["Manfred Schewe", "Susanne Even"]
+        return editors
 
     def get_issue_year(self):
         issue_year = {}
@@ -1096,21 +1114,22 @@ class parseBoolean(parseArticle):
         abstract = " ".join(abstract.split()).strip()
         return abstract
 
-    def parse_authors(self, authors_str, fallback_author=''):
+    def parse_authors(self, authors_str, fallback_authors=[]):
         authors = [authors_str]
         if len(authors) == 0:
-            if fallback_author != '':
-                authors.append(fallback_author)
+            if len(fallback_authors) > 0:
+                for fallback_author in fallback_authors:
+                    authors.append(fallback_author)
         return authors
   
-    def get_authors_from_toc(self, fallback_author=''):
+    def get_authors_from_toc(self, fallback_authors=[]):
         toc = self.get_toc_elements()
         authors_str = toc["authors"]
-        authors = self.parse_authors(authors_str, fallback_author)
+        authors = self.parse_authors(authors_str, fallback_authors)
         return authors
 
-    def get_authors(self, fallback_author=''):
-        return self.get_authors_from_toc(fallback_author)
+    def get_authors(self, fallback_authors=[]):
+        return self.get_authors_from_toc(fallback_authors)
 
     def get_html(self):
         if self.status_code != 200:
@@ -1221,8 +1240,6 @@ class parseScenario(parseArticle):
         mint_doi = non_ojs_meta["mint_doi"]
         return mint_doi
 
-    def pdf_insert_doi(self, pdf_content)
-
     def get_pdf(self):
         # Try to load fallback content first (corrected pdfs)
         url = self.get_fallback_url('pdf')
@@ -1242,9 +1259,11 @@ class parseScenario(parseArticle):
                 raise Exception("Failed to load pdf for {0}".format(self.page_url))
             pdf_content = response.content
         
+        skip_dois = ["10.33178/scenario.10.1.6"]
         # if item has a doi
         if self.has_doi():
-            pdf_content = utils.pdf_insert_doi(pdf_content, self.doi)
+            if self.doi not in skip_dois:
+                pdf_content = utils.pdf_insert_doi(pdf_content, self.doi)
         return pdf_content
 
     def get_meta_tags(self):
@@ -1291,7 +1310,19 @@ class parseScenario(parseArticle):
         pages_dict = self.get_pages_dict()
         art_pages_id = self.get_art_pages_id()
         if art_pages_id in pages_dict:
-            pages = pages_dict[art_pages_id] 
+            pages = pages_dict[art_pages_id]
+            if art_pages_id.endswith('-en'):
+                alt_art_pages_id = "{}-de".format(art_pages_id[:-3])
+            else:
+                alt_art_pages_id = "{}-en".format(art_pages_id[:-3])
+            if alt_art_pages_id in pages_dict:
+                alt_pages = pages_dict[alt_art_pages_id]
+                start_page_int = self.get_page_as_int(pages["start_page"])
+                alt_start_page_int = self.get_page_as_int(alt_pages["start_page"])
+                if alt_start_page_int > start_page_int:
+                    pages = {"start_page": pages["start_page"], "end_page": alt_pages["end_page"]}
+                else:
+                    pages = {"start_page": alt_pages["start_page"], "end_page": pages["end_page"]}
         else:
             raise Exception("Failed to load pages info for {}".format(art_pages_id))
         return pages
@@ -1386,7 +1417,7 @@ class parseScenario(parseArticle):
         section = self.get_toc_elements()["section"]
         return section
 
-    def get_authors_from_meta(self, fallback_author=''):
+    def get_authors_from_meta(self, fallback_authors=[]):
         authors = []
         meta_authors = self.get_meta_tag("citation_author")
         print(meta_authors)
@@ -1401,11 +1432,12 @@ class parseScenario(parseArticle):
         authors = list(map(str.strip, authors)) 
         authors = list(filter(None, authors))
         if len(authors) == 0:
-            if fallback_author != '':
-                authors.append(fallback_author)
+            if len(fallback_authors) > 0:
+                for fallback_author in fallback_authors:
+                    authors.append(fallback_author)
         return authors
 
-    def parse_authors(self, authors_str, fallback_author=''):
+    def parse_authors(self, authors_str, fallback_authors=[]):
      #known patterns
         #John Doe/Jane Doe/Jenny Doe
         #John Doe & Jane Doe
@@ -1443,8 +1475,9 @@ class parseScenario(parseArticle):
         authors = list(filter(None, authors))
         authors = self.remove_non_authors(authors)
         if len(authors) == 0:
-            if fallback_author != '':
-                authors.append(fallback_author)
+            if len(fallback_authors) > 0:
+                for fallback_author in fallback_authors:
+                    authors.append(fallback_author)
         return authors
 
     def clean_authors_str(self, authors_str):        
@@ -1473,19 +1506,19 @@ class parseScenario(parseArticle):
                 authors.remove(author)
         return authors
 
-    def get_authors_from_body(self, fallback_author=''):
+    def get_authors_from_body(self, fallback_authors=[]):
         authors_str = self.soup.find(class_="docauthor").get_text()
-        authors = self.parse_authors(authors_str, fallback_author)
+        authors = self.parse_authors(authors_str, fallback_authors)
         return authors
 
-    def get_authors_from_toc(self, fallback_author=''):
+    def get_authors_from_toc(self, fallback_authors=[]):
         toc = self.get_toc_elements()
         authors_str = toc["authors"]
-        authors = self.parse_authors(authors_str, fallback_author)
+        authors = self.parse_authors(authors_str, fallback_authors)
         return authors
 
-    def get_authors(self, fallback_author=''):
-        return self.get_authors_from_toc(fallback_author)
+    def get_authors(self, fallback_authors=[]):
+        return self.get_authors_from_toc(fallback_authors)
 
     def get_toc_section(self):
         toc = self.get_toc_elements()
@@ -1626,8 +1659,12 @@ class parseScenario(parseArticle):
 
     def get_html(self):
         html_template = """<!DOCTYPE html><html><head>
-                           <link rel="stylesheet" href="../../../../../public/site/scenario_html.css" />
-                           <script src="../../../../../public/site/scenario_html.js" />
+                            <link rel="stylesheet" href="ojs://sitepublic/scenario_html.css" />
+                            <script src="ojs://sitepublic/scenario_html.js" />
+                            <!-- RobustLinks CSS -->
+                            <link rel="stylesheet" type="text/css" href="https://doi.org/10.25776/z58z-r575" />
+                            <!-- RobustLinks Javascript -->
+                            <script type="text/javascript" src="https://doi.org/10.25776/h1fa-7a28"></script>
                            </head><body><span /></body></html>"""
         template = BeautifulSoup(html_template, 'html.parser')
         doi = self.get_doi()
@@ -1707,16 +1744,19 @@ class parseScenario(parseArticle):
                 "http://web.archive.org/web/20161214045437/http://research.ucc.ie/scenario/2010/02/donnery/03/en/image7.png image9.png image6.png image8.png image4.png image5.png" : "http://ojs.ucc.ie/public/site/scenario_covers/2010-02-03_images.png",
                 "http://research.ucc.ie/scenario/2010/02/donnery/03/en/image7.png%20image9.png%20image6.png%20image8.png%20image4.png%20image5.png" : "http://ojs.ucc.ie/public/site/scenario_covers/2010-02-03_images.png",
                 "http://research.ucc.ie/scenario/2010/02/donnery/03/en/image7.png image9.png image6.png image8.png image4.png image5.png" : "http://ojs.ucc.ie/public/site/scenario_covers/2010-02-03_images.png",
-                "http://research.ucc.ie/scenario/2015/01/Berghoff/05/de/media/image3.jpeg": "http://ojs.ucc.ie/public/site/scenario_covers/2015-01-05_image3.jpeg",
+                "http://research.ucc.ie/scenario/2015/01/Berghoff/05/de/media/image3.jpeg": "http://ojs.ucc.ie/public/site/scenario_covers/2015-01-05_image3.png",
                 "http://research.ucc.ie/scenario/2019/02/VillanuevaOSullivan/06/en/media/image3.jpg media/image4.jpg": "http://ojs.ucc.ie/public/site/scenario_covers/2019-02-06_image3.png",
                 "http://research.ucc.ie/scenario/2019/02/VillanuevaOSullivan/06/en/media/image3.jpg%20media/image4.jpg": "http://ojs.ucc.ie/public/site/scenario_covers/2019-02-06_image3.png",
                 "https://web.archive.org/web/20161218173420im_/http:/research.ucc.ie/scenario/2007/02/hajduk/05/de/": "http://ojs.ucc.ie/public/site/scenario_covers/2007-02-05_image1.png",
                 "http:/research.ucc.ie/scenario/2007/02/hajduk/05/de/": "http://ojs.ucc.ie/public/site/scenario_covers/2007-02-05_image1.png"
             }
             if img_url in bad_images:
+                print("in bad images for {}".format(img_url))
                 img_url = bad_images[img_url]
+            print("requesting {}".format(img_url))
             image_req = requests.get(img_url)
             if image_req.status_code != 200:
+                print("not 200 {}".format(img_url))
                 if  "web.archive.org" in img_url:
                     orig_img_url = "http://{}".format(img_url.split("//")[2])
                     image_req = requests.get(orig_img_url)
@@ -1758,7 +1798,7 @@ class parseScenario(parseArticle):
                 if link_parts[1].strip().startswith("http"):
                     link = link_parts[0]
 
-            skip_domains = ["research.ucc.ie", "publish.ucc.ie", "doi.org", "handle.net"]
+            skip_domains = ["research.ucc.ie", "publish.ucc.ie", "doi.org", "handle.net", "youtube.com"]
             #if link in media:
             ab_url = self.get_absolute_url(link)
             ab_url = self.strip_wayback(ab_url)
@@ -1777,6 +1817,7 @@ class parseScenario(parseArticle):
                     a["data-originalurl"] = ab_url
                     a["data-versiondate"] = self.get_date_from_wb_url(wb_url)
                 else:
+                    a["href"] = ab_url
                     print("WARNING: No wayback snapshot found for {0} from {1}".format(ab_url, self.page_url))
             else:
                 print("WARNING: No wayback snapshot found for {0} from {1}".format(ab_url, self.page_url))
@@ -1882,7 +1923,7 @@ class parseChimera(parseArticle):
             abstract = " ".join(abstract.split()).strip()
         return abstract
 
-    def get_authors(self, fallback_author=''):
+    def get_authors(self, fallback_authors=[]):
         authors = []
         els = self.soup.select('h3.Author')
         if len(els) > 0:
@@ -1892,8 +1933,9 @@ class parseChimera(parseArticle):
             authors.append(author)
 
         if len(authors) == 0:
-            if fallback_author != '':
-                authors.append(fallback_author)         
+            if len(fallback_authors) > 0:
+                for fallback_author in fallback_authors:
+                    authors.append(fallback_author)      
         
         return authors
 
@@ -2019,10 +2061,10 @@ class parseIjpp(parseArticle):
             abstract = abstract[8:].strip()
         return abstract
 
-    def get_authors_from_toc(self, fallback_author=''):
+    def get_authors_from_toc(self, fallback_authors=[]):
         toc = self.get_toc_elements()
         authors_str = toc["authors"]
-        authors = self.parse_authors(authors_str, fallback_author)
+        authors = self.parse_authors(authors_str, fallback_authors)
         return authors
         
     def get_affiliations_from_body(self):
@@ -2123,16 +2165,18 @@ class parseIjpp(parseArticle):
        
         return auth_affil
 
-    def get_authors(self, fallback_author=''):
+    def get_authors(self, fallback_authors=[]):
         auths = []
         auth_affil = self.get_authors_affils()
         for auth in auth_affil:
             auths.append(auth_affil[auth]['name']) 
-        if auths == [] and fallback_author != "":
-            auths.append(fallback_author)
+        if len(auths) == 0:
+            if len(fallback_authors) > 0:
+                for fallback_author in fallback_authors:
+                    auths.append(fallback_author)
         return auths
 
-    def parse_authors(self, authors_str, fallback_author=''):
+    def parse_authors(self, authors_str, fallback_authors=[]):
      #known patterns
         #John Doe/Jane Doe/Jenny Doe
         #John Doe & Jane Doe
@@ -2172,8 +2216,9 @@ class parseIjpp(parseArticle):
         authors = list(map(str.strip, authors)) 
         authors = list(filter(None, authors))
         if len(authors) == 0:
-            if fallback_author != '':
-                authors.append(fallback_author)
+            if len(fallback_authors) > 0:
+                for fallback_author in fallback_authors:
+                    authors.append(fallback_author)
         return authors
 
     def clean_authors_str(self, authors_str):        

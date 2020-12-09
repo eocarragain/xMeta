@@ -21,7 +21,7 @@ next_issue = "http://research.ucc.ie/scenario/2020/02"
 if next_issue in issue_urls:
     issue_urls.remove(next_issue)
 
-#issue_urls = ["http://research.ucc.ie/scenario/2013/02"]
+#issue_urls = ["http://research.ucc.ie/scenario/2016/01"]
 
 
 if __name__ == '__main__':
@@ -99,8 +99,14 @@ if __name__ == '__main__':
             toc_section = art.get_section()
             section_ref = issue.get_section_ref(toc_section, title)
             non_ojs_meta = issue.get_section_meta_for_non_ojs(section_ref)
-            
-            authors = art.get_authors('Manfred Schewe')
+
+            no_author_section_refs = ["CA", "CFP", "BIO"]
+
+            if section_ref in no_author_section_refs:
+                fallback_authors = ["The Editors"]
+            else:    
+                fallback_authors = issue.get_editors()            
+            authors = art.get_authors(fallback_authors)
             author_keys = utils.get_contibs(authors)
             if len(author_keys.strip()) == 0:
                 print("@@@@@ {}".format(authors))

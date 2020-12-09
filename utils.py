@@ -31,7 +31,7 @@ def pdf_insert_doi(req_content, doi):
         canvas.showPage()
 
     canvas.save()
-    pdf_bytes = pdf_buffer.read()
+    pdf_bytes = pdf_buffer.getbuffer()
     return pdf_bytes
 
 

@@ -10,9 +10,10 @@ next_issue = "scenario_2020_02.xlsx"
 if next_issue in filenames:
     filenames.remove(next_issue)
 
+#filenames = ["scenario_2016_01.xlsx"]
 for input_file in filenames:
     print(input_file)
-    crossref_job = xmet.CrossRefJob(input_file)
+    crossref_job = xmet.CrossRefJournalJob(input_file)
     crossref_job.generate()
     
     dspace_job = xmet.DspaceJob(input_file)
