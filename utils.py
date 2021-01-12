@@ -1,13 +1,18 @@
-import PyPDF2 as pyPdf
+
 import io
 import re
+#reportlab
 from reportlab.pdfgen.canvas import Canvas
 from reportlab.lib.colors import HexColor
+# pdfrw
 from pdfrw import PdfReader
 from pdfrw.toreportlab import makerl
 from pdfrw.buildxobj import pagexobj
+# PyPDF2
+import PyPDF2 as pyPdf
+from PyPDF2 import PdfFileWriter, PdfFileReader
 
-def pdf_insert_doi(req_content, doi):
+def pdf_insert_doi_using_pdfrw(req_content, doi):
     input_file = io.BytesIO(req_content)
     pdf_buffer = io.BytesIO()
     reader = PdfReader(input_file)
@@ -31,6 +36,42 @@ def pdf_insert_doi(req_content, doi):
         canvas.showPage()
 
     canvas.save()
+    pdf_bytes = pdf_buffer.getbuffer()
+    return pdf_bytes
+
+def get_doi_canvas(doi, width, height):
+    packet = io.BytesIO()
+
+    canvas = Canvas(packet, pagesize=(width,height))
+
+    footer_text = "https://doi.org/{}".format(doi)
+    canvas.saveState()
+    canvas.setFont("Helvetica-Bold",8)
+    canvas.setFillColor(HexColor('#990100'))
+    canvas.drawCentredString(int(width)/2, 20, footer_text)
+    canvas.restoreState()
+    canvas.showPage()
+    canvas.save()
+    packet.seek(0)
+    new_pdf = PdfFileReader(packet)
+    return new_pdf
+
+def pdf_insert_doi(req_content, doi):
+    input_file = io.BytesIO(req_content)
+    existing_pdf = PdfFileReader(input_file)
+
+    output = PdfFileWriter()
+    num_of_pages = existing_pdf.getNumPages()
+    for i in range(num_of_pages):
+        page = existing_pdf.getPage(i)
+        if i == 0:
+            mediabox = page.mediaBox
+            doi_canvas = get_doi_canvas(doi, mediabox[2],mediabox[3])
+            page.mergePage(doi_canvas.getPage(0))
+        output.addPage(page)
+
+    pdf_buffer = io.BytesIO()
+    output.write(pdf_buffer)
     pdf_bytes = pdf_buffer.getbuffer()
     return pdf_bytes
 

@@ -973,21 +973,27 @@ class OjsJob(genericJob):
             name = "HTML"
             if lang == "en":
                 seq = "1"
+                url_path = "html-en"
             else:
                 seq = "3"
+                url_path = "html-de"
         else:
             name = "PDF"
             if lang == "en":
                 seq = "0"
+                url_path = "pdf-en"
             else:
                 seq = "2"
+                url_path = "pdf-de"
         locale = self.get_locale(lang)
 
         galley = {
             "@attrs": {
                     "xmlns:xsi": "http://www.w3.org/2001/XMLSchema-instance",
+                    "url_path": url_path,
                     "approved":"true",
                     "xsi:schemaLocation": "http://pkp.sfu.ca native.xsd"
+                    
             },
             "@name": "article_galley",
             "name": {
