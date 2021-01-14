@@ -11,7 +11,7 @@ class genericJob():
         self.schema_version = "4.4.2"
         self.depositor_name = "University College Cork"
         self.depositor_email_address = "cora@ucc.ie"
-        self.timestamp = datetime.datetime.now().strftime("%Y%m%d%H%M")
+        self.timestamp = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
         self.path = path
         xl = pd.ExcelFile(self.path)
         self.article_df = xl.parse('Articles')
@@ -181,6 +181,21 @@ class genericJob():
             citations.update(citation)
         
         return citations
+
+    def get_target_url(self, url, doi, level="article"):
+        url = url
+        # scenario specific logic
+        # this method should be overwritten in sub-class
+        if "research.ucc.ie/scenario" in url:
+            stub = doi.split("/")[-1].replace(".", "-")
+            if level == "article":
+                url = "https://journals.ucc.ie/index.php/scenario/article/view/{0}".format(stub)
+            elif level == "issue":
+                url = "https://journals.ucc.ie/index.php/scenario/issue/view/{0}".format(stub)
+            elif level == "journal":
+                url = "https://journals.ucc.ie/index.php/scenario"
+
+        return url
 
 class CrossRefJob(genericJob):
     def get_root(self):
@@ -352,7 +367,7 @@ class CrossRefJob(genericJob):
         publication_date = self.get_pub_date(self.publication_date)
         pub_date_str = self.get_pub_date_string(self.publication_date)
         doi = self.get_valid_doi(row["doi"])
-        url = row["url"]
+        url = self.get_target_url(row["url"], doi)
 
         try: 
             language = row["language"]
@@ -423,6 +438,7 @@ class CrossRefJob(genericJob):
 class CrossRefJournalJob(CrossRefJob):
 
     def get_journal_metadata(self):
+        url =self.get_target_url(self.journal_url, self.journal_doi, "journal")
         journal = {
             "@attrs": {
                 "reference_distribution_opts": self.reference_distribution_opts,
@@ -432,12 +448,13 @@ class CrossRefJournalJob(CrossRefJob):
             "issn": self.journal_issn,
             "doi_data": {
                 "doi": self.journal_doi,
-                "resource": self.journal_url
+                "resource": url
             }
         }
         return journal
 
     def get_journal_issue(self):
+        url =self.get_target_url(self.issue_url, self.issue_doi, "issue")
         journal_issue = {
             "contributors": self.get_contributors(self.issue_editors_keys, "editor"),
             "titles": {},
@@ -446,7 +463,7 @@ class CrossRefJournalJob(CrossRefJob):
             "issue": self.issue_number,
             "doi_data": {
                 "doi": self.issue_doi,
-                "resource": self.issue_url
+                "resource": url
             }
         }
 
@@ -713,6 +730,8 @@ class DspaceJob(genericJob):
             doi
         )
 
+        url = self.get_target_url(row["url"], doi)
+
         #add trailing fullstops to abstracts
         abstract = row["abstract"].strip()
         if len(abstract) > 0:
@@ -727,7 +746,7 @@ class DspaceJob(genericJob):
                 'dc.contributor.editor[en]': editors,
                 'dc.title[en]': title,
                 'dc.identifier.citation[en]': article_citation,
-                'dc.relation.uri[]': row["url"],
+                'dc.relation.uri[]': url,
                 'dc.identifier.endpage[]': end_page,
                 'dc.subject[en]': subjects,
                 'dc.internal.authorcontactother[en]': first_author_str,

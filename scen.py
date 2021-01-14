@@ -1,6 +1,7 @@
-import xmet 
+import xmet
+import time
 #year_range = range(2009, 2010)
-year_range = range(2008, 2021)
+year_range = range(2007, 2021)
 filenames = []
 for year in year_range:
     filenames.append("scenario_{0}_01.xlsx".format(year))
@@ -12,6 +13,7 @@ if next_issue in filenames:
 
 #filenames = ["scenario_2016_01.xlsx"]
 for input_file in filenames:
+    #time.sleep(2)
     print(input_file)
     crossref_job = xmet.CrossRefJournalJob(input_file)
     crossref_job.generate()
