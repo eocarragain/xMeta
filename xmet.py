@@ -183,17 +183,19 @@ class genericJob():
         return citations
 
     def get_target_url(self, url, doi, level="article"):
-        url = url
+
         # scenario specific logic
         # this method should be overwritten in sub-class
-        if "research.ucc.ie/scenario" in url:
+        if "research.ucc.ie" in url:
+            url_parts = url.split(url)
+            journal = url_parts[3]
             stub = doi.split("/")[-1].replace(".", "-")
             if level == "article":
-                url = "https://journals.ucc.ie/index.php/scenario/article/view/{0}".format(stub)
+                url = "https://journals.ucc.ie/index.php/{0}/article/view/{1}".format(journal, stub)
             elif level == "issue":
-                url = "https://journals.ucc.ie/index.php/scenario/issue/view/{0}".format(stub)
+                url = "https://journals.ucc.ie/index.php/{0}/issue/view/{1}".format(journal, stub)
             elif level == "journal":
-                url = "https://journals.ucc.ie/index.php/scenario"
+                url = "https://journals.ucc.ie/index.php/{0}".format(journal)
 
         return url
 
@@ -689,7 +691,8 @@ class DspaceJob(genericJob):
             first_author = self.get_contributors_as_dicts(row["authors"])[0]
             first_author_str = self.format_affilation(first_author["given_name"], first_author["surname"], first_author["primary_affiliation"])
             if 'email_for_ucc_authors' in first_author:
-                internal_email = first_author['email_for_ucc_authors']
+                if "ucc.ie" in first_author['email_for_ucc_authors']:
+                    internal_email = first_author['email_for_ucc_authors']
 
         editors = ""
         if row["editors"]:

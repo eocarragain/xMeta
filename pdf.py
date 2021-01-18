@@ -20,15 +20,15 @@ for page in pdf.pages:
     #print(lines)
     l = 0
     for line in lines:
-        #print (page.extractText()[-200:])
+        print (page.extractText()[-200:])
         pattern = re.compile(r"\d{2}-\D+-\d{4}-\d{2}-(en|de)", re.IGNORECASE)
-        print (page.extractText()[-300:])
+        #print (page.extractText()[-300:])
         if pattern.match(line):
             
             page_label = lines[l-1].strip()
-            print(p)
-            print(page_label)
-            print(line)
+            #print(p)
+            #print(page_label)
+            #print(line)
             if page_label.isnumeric():
                 if p - int(page_label) != 5:
                     print("@@@@@@@@@@@@@@@ warning ")

@@ -846,7 +846,7 @@ class parseArticle():
                 return fallback_req.text
 
         self.status_code = 500
-        raise Exception("Failed to load html for {0}".format(self.page_url))
+        #raise Exception("Failed to load html for {0}".format(self.page_url))
         return req.text
 
     def get_art_pages_id(self):
@@ -1029,39 +1029,24 @@ class parseBoolean(parseArticle):
         return parseBooleanIssue(self.issue_url)
 
     def get_pdf(self):
-        pdf_url = self.page_url.replace("/boolean/", "/boolean/pdf/")
-        pdf_urls = [pdf_url]
-        alt_base = pdf_url.rsplit("/", 3)[0]
-        url_parts = pdf_url.rsplit("/", 5)
-
-        alt_filename = "{0}-{1}-{2}-{3}-{4}.pdf".format(
-            url_parts[-2], #art_id
-            url_parts[-3], #name
-            url_parts[-5], #year
-            url_parts[-4], #issue, ie. 00
-            url_parts[-1]  #lang
-        )
-        alt_pdf_url = "{0}/{1}".format(alt_base, alt_filename)
-        pdf_urls.append(alt_pdf_url)
-
-        poss_urls = copy.deepcopy(pdf_urls)
-        for poss_url in poss_urls:
-            check_wb = self.url_in_wb(poss_url) 
-            if check_wb != False:
-                wb_url = check_wb
-                pdf_urls.append(wb_url)
-
-        alt_base2 = "http://ojs.ucc.ie/public/site/boolean_covers"
-        alt_pdf_url2 = "{0}/{1}".format(alt_base2, alt_filename)
-        pdf_urls.append(alt_pdf_url2)
-
-        for url in pdf_urls:
-            print(url)
-            req = requests.get(url)
-            if req.status_code == 200:
-                return req.content
-
-        raise Exception("Failed to load pdf for {0}".format(self.page_url))
+        # Try to load fallback content first (corrected pdfs)
+        url = self.get_fallback_url('pdf')
+        req = requests.get(url) 
+        if req.status_code == 200:
+            pdf_content = req.content
+        else:
+            pdf_url = self.page_url.replace("/boolean/", "/boolean/pdf/")
+            response = requests.get(pdf_url) 
+            if response.status_code != 200:
+                raise Exception("Failed to load pdf for {0}".format(self.page_url))
+            pdf_content = response.content
+        
+        skip_dois = []
+        # if item has a doi
+        if self.has_doi():
+            if self.doi not in skip_dois:
+                pdf_content = utils.pdf_insert_doi(pdf_content, self.doi)
+        return pdf_content
 
     def get_cite(self):
         cite = self.soup.select("div.citetext")[0].get_text()
@@ -1135,8 +1120,12 @@ class parseBoolean(parseArticle):
         if self.status_code != 200:
             return ""
         html_template = """<!DOCTYPE html><html><head>
-                           <link rel="stylesheet" href="../../../../../public/site/boolean_html.css" />
-                           <script src="../../../../../public/site/boolean_html.js" />
+                           <link rel="stylesheet" href="ojs://sitepublic/boolean_html.css" />
+                           <script src="ojs://sitepublic/boolean_html.js" />
+                            <!-- RobustLinks CSS -->
+                            <link rel="stylesheet" type="text/css" href="https://doi.org/10.25776/z58z-r575" />
+                            <!-- RobustLinks Javascript -->
+                            <script type="text/javascript" src="https://doi.org/10.25776/h1fa-7a28"></script>
                            </head><body><span /></body></html>"""
         template = BeautifulSoup(html_template, 'html.parser')
         header = self.soup.new_tag("div")
@@ -1166,11 +1155,18 @@ class parseBoolean(parseArticle):
         citation = self.soup.new_tag("div")
         citation["id"] = "citation"
         citation.string = citation_str
+
+        cc_statement = "© {}, The Author(s). This work is licensed under a Creative Commons Attribution-NonCommercial 4.0 International License.".format(year)
+        cc = self.soup.new_tag("div")
+        cc["class"] = "cc_statement"
+        cc["id"] = "cc_top"
+        cc.string = cc_statement
         
         header.append(title)
         header.append(author)
         header.append(affil)
         header.append(citation)
+        header.append(cc)
 
         content_box = self.soup.select("#content")[0]
 
@@ -1201,6 +1197,50 @@ class parseBoolean(parseArticle):
             mimetype = mimetypes.guess_type(img_url)[0]
             img['src'] = "data:%s;base64,%s" % (mimetype, base64.b64encode(image_data).decode('utf-8'))
 
+            # parent a tag
+            parent = img.parent
+            if parent.name == "a":
+                parent.attrs.clear()
+                parent.name = "span"
+
+        media = []
+
+        for a in content_box.find_all('a'):
+            if "href" not in a.attrs:
+                continue
+            link = a["href"].strip()
+            if link.startswith("#"):
+                continue
+            if "mailto:" in link:
+                continue
+            link_parts = link.split(" ")
+            if len(link_parts) > 1:
+                if link_parts[1].strip().startswith("http"):
+                    link = link_parts[0]
+
+            skip_domains = ["research.ucc.ie", "publish.ucc.ie", "doi.org", "handle.net", "youtube.com"]
+            #if link in media:
+            ab_url = self.get_absolute_url(link)
+            ab_url = self.strip_wayback(ab_url)
+            if any(skip_domain in ab_url for skip_domain in skip_domains):
+                if any(media_link in ab_url for media_link in media):
+                    print("using wayback for local media")
+                else:   
+                    continue
+            date = self.get_pub_date_str().replace("-", "")
+            wb_api_url = self.get_wayback_api_url(ab_url, date)
+            wb_api_resp = requests.get(wb_api_url).json()
+            if wb_api_resp["archived_snapshots"] != {}:
+                wb_url = wb_api_resp["archived_snapshots"]["closest"]["url"]
+                if wb_api_resp["archived_snapshots"]["closest"]["status"] == "200":
+                    a["href"] = wb_url
+                    a["data-originalurl"] = ab_url
+                    a["data-versiondate"] = self.get_date_from_wb_url(wb_url)
+                else:
+                    a["href"] = ab_url
+                    print("WARNING: No wayback snapshot found for {0} from {1}".format(ab_url, self.page_url))
+            else:
+                print("WARNING: No wayback snapshot found for {0} from {1}".format(ab_url, self.page_url))
 
         body = template.find("body")
         body.append(header)
