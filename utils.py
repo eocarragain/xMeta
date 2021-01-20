@@ -87,6 +87,7 @@ def get_pdf_page_count(req_content):
 
 def get_end_page_info_from_pdf(req_content):
     pdf_reader = get_pdf_reader(req_content)
+    page_count = pdf_reader.numPages
     p = 1
     end_pages = {}
     for page in pdf_reader.pages:
@@ -108,7 +109,8 @@ def get_end_page_info_from_pdf(req_content):
                 end_pages[id_key] = {
                     "id" : id,
                     "end_page_seq": p,
-                    "end_page_label": page_label
+                    "end_page_label": page_label,
+                    "page_count": page_count
                 }
             l += 1
         p += 1

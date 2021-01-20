@@ -748,6 +748,7 @@ class parseArticle():
         self.doi = self.get_doi()
         #self.pages = self.get_pages()
         self.url_key = self.normalise_url_key(self.page_url)
+        self.pages_json = {}
 
     def get_end_page_info_from_pdf(self):
         end_page_info = utils.get_end_page_info_from_pdf(self.get_pdf())
@@ -848,6 +849,13 @@ class parseArticle():
         self.status_code = 500
         #raise Exception("Failed to load html for {0}".format(self.page_url))
         return req.text
+
+    def get_pages_dict(self):
+        pages_dict = {}
+        json_file = self.pages_json
+        with open(json_file, 'r') as f:
+            pages_dict = json.load(f)
+            return pages_dict
 
     def get_art_pages_id(self):
         url_parts = self.page_url.rsplit("/", 5)
@@ -1011,11 +1019,12 @@ class parseArticle():
 
 
 class parseBoolean(parseArticle):
-    def __init__(self, issue_url):
+    def __init__(self, issue_url, pages_json_path = 'boolean_pages.json'):
         parseArticle.__init__(self, issue_url)
         self.issue = self.get_issue_obj() 
         self.title = self.get_title()
         self.doi = self.get_doi()
+        self.pages_json = pages_json_path
         #self.journal_abbrev = "boolean"
         #self.pages = self.get_pages()
 
@@ -1031,11 +1040,13 @@ class parseBoolean(parseArticle):
     def get_pdf(self):
         # Try to load fallback content first (corrected pdfs)
         url = self.get_fallback_url('pdf')
+        print(url)
         req = requests.get(url) 
         if req.status_code == 200:
             pdf_content = req.content
         else:
             pdf_url = self.page_url.replace("/boolean/", "/boolean/pdf/")
+            print(pdf_url)
             response = requests.get(pdf_url) 
             if response.status_code != 200:
                 raise Exception("Failed to load pdf for {0}".format(self.page_url))
@@ -1053,7 +1064,46 @@ class parseBoolean(parseArticle):
         cite = " ".join(cite.split()).strip()
         return cite
 
-    def get_pages(self):
+    def get_end_page_info_from_pdf(self):
+        url_parts = self.page_url.split("/")
+        art_number = url_parts[-2]
+        year = url_parts[-5] 
+        issue_no = url_parts[-4]
+        language = url_parts[-1]
+
+        art_id = "{}-{}-{}-{}".format(art_number, year, issue_no, language)
+        req_content = self.get_pdf()
+        pdf_reader = utils.get_pdf_reader(req_content)
+        page_count = pdf_reader.numPages
+        if page_count == 0:
+            print("warning no page count")
+        p = 1
+        end_pages = {}
+        for page in pdf_reader.pages:
+            if p == page_count:
+                # pull out lines for the last 200 words from page text
+                lines = page.extractText()[-200:].splitlines()
+                line = lines[-1]
+                
+                # page_lable is the user-facing page, e.g. 'iv', '33'
+                # it should be on the line before the article id
+                page_label = line.strip()
+                if page_label.endswith("UCC"):
+                    line = lines[-4]
+                    page_label = line.strip()
+                print(page_label)
+    
+                end_pages[art_id] = {
+                    "id" : art_id,
+                    "end_page_seq": p,
+                    "end_page_label": page_label,
+                    "page_count": page_count
+                }
+            p += 1
+
+        return (end_pages)
+
+    def get_pages_from_meta(self):
         pages = {}
         if self.status_code != 200:
             return {"start_page": "0", "end_page": "0"}
@@ -1077,6 +1127,28 @@ class parseBoolean(parseArticle):
             # raise Exception("Failed to find pages for {}".format(self.page_url))
             print("WARNING: Failed to find pages for {}".format(self.page_url))
             return {"start_page": "0", "end_page": "0"}
+        return pages
+
+    def get_pages(self):
+        pages = {}
+        pages_dict = self.get_pages_dict()
+        art_pages_id = self.get_art_pages_id()
+        if art_pages_id in pages_dict:
+            pages = pages_dict[art_pages_id]
+            if art_pages_id.endswith('-en'):
+                alt_art_pages_id = "{}-de".format(art_pages_id[:-3])
+            else:
+                alt_art_pages_id = "{}-en".format(art_pages_id[:-3])
+            if alt_art_pages_id in pages_dict:
+                alt_pages = pages_dict[alt_art_pages_id]
+                start_page_int = self.get_page_as_int(pages["start_page"])
+                alt_start_page_int = self.get_page_as_int(alt_pages["start_page"])
+                if alt_start_page_int > start_page_int:
+                    pages = {"start_page": pages["start_page"], "end_page": alt_pages["end_page"]}
+                else:
+                    pages = {"start_page": alt_pages["start_page"], "end_page": pages["end_page"]}
+        else:
+            raise Exception("Failed to load pages info for {}".format(art_pages_id))
         return pages
 
     def get_abstract(self):
@@ -1337,13 +1409,6 @@ class parseScenario(parseArticle):
     def get_start_page_from_toc(self):
         toc = self.get_toc_elements()
         return toc["start_page"]
-
-    def get_pages_dict(self):
-        pages_dict = {}
-        json_file = self.pages_json
-        with open(json_file, 'r') as f:
-            pages_dict = json.load(f)
-            return pages_dict
 
     def get_pages(self):
         pages = {}

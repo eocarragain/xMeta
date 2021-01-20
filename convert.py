@@ -15,11 +15,11 @@ if __name__ == '__main__':
     type = args['type']
     
     if type == "journal":
-        #dspace_job = xmet.DspaceJob(input_file)
-        #dspace_job.generate()
+        dspace_job = xmet.DspaceJob(input_file)
+        dspace_job.generate()
 
-        #crossref_job = xmet.CrossRefJournalJob(input_file)
-        #crossref_job.generate()
+        crossref_job = xmet.CrossRefJournalJob(input_file)
+        crossref_job.generate()
 
         if journal == "scenario":
             ojs_job = xmet.OjsScenarioJob(input_file)
