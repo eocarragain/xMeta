@@ -39,16 +39,19 @@ def pdf_insert_doi_using_pdfrw(req_content, doi):
     pdf_bytes = pdf_buffer.getbuffer()
     return pdf_bytes
 
-def get_doi_canvas(doi, width, height):
+def get_doi_canvas(doi, width, height, license_url):
     packet = io.BytesIO()
 
     canvas = Canvas(packet, pagesize=(width,height))
 
     footer_text = "https://doi.org/{}".format(doi)
     canvas.saveState()
-    canvas.setFont("Helvetica-Bold",8)
-    canvas.setFillColor(HexColor('#990100'))
+    #canvas.setFont("Helvetica-Bold",8)
+    canvas.setFont("Times-Roman",8)
+    #canvas.setFillColor(HexColor('#990100'))
     canvas.drawCentredString(int(width)/2, 20, footer_text)
+    if len(license_url.strip()) > 0:
+        canvas.drawCentredString(int(width)/2, 10, license_url)
     canvas.restoreState()
     canvas.showPage()
     canvas.save()
@@ -56,7 +59,7 @@ def get_doi_canvas(doi, width, height):
     new_pdf = PdfFileReader(packet)
     return new_pdf
 
-def pdf_insert_doi(req_content, doi):
+def pdf_insert_doi(req_content, doi, license_url):
     input_file = io.BytesIO(req_content)
     existing_pdf = PdfFileReader(input_file)
 
@@ -66,7 +69,7 @@ def pdf_insert_doi(req_content, doi):
         page = existing_pdf.getPage(i)
         if i == 0:
             mediabox = page.mediaBox
-            doi_canvas = get_doi_canvas(doi, mediabox[2],mediabox[3])
+            doi_canvas = get_doi_canvas(doi, mediabox[2],mediabox[3], license_url)
             page.mergePage(doi_canvas.getPage(0))
         output.addPage(page)
 

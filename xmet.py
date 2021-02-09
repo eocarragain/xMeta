@@ -133,11 +133,13 @@ class genericJob():
             raise Exception("Invalid ORCID: {}".format(orcid))
 
     def get_pub_date_string(self, timestamp):
+        print(timestamp)
         pydate = timestamp.to_pydatetime()
         date_str = pydate.strftime("%Y-%m-%d")
         return date_str
 
     def get_pub_date_parts(self, date):
+        print(date)
         date_str = self.get_pub_date_string(date)
         date_parts_array = date_str.split("-")
         date_parts = {
@@ -145,6 +147,7 @@ class genericJob():
             "month": date_parts_array[1],
             "day": date_parts_array[2]
         }
+        print(date_parts)
         return date_parts
 
     def get_journal_volume(self):
@@ -152,8 +155,10 @@ class genericJob():
         if self.has_volume == False:
             return volume_metadata
         
+        print(self.volume_number)
+
         if self.volume_number.strip() != "":
-            volume_metadata["volume"] = self.volume_number
+            volume_metadata["volume"] = self.volume_number.strip()
 
         if self.volume_doi and self.volume_url:
             volume_metadata["doi_data"] = {
@@ -187,7 +192,7 @@ class genericJob():
         # scenario specific logic
         # this method should be overwritten in sub-class
         if "research.ucc.ie" in url:
-            url_parts = url.split(url)
+            url_parts = url.split("/")
             journal = url_parts[3]
             stub = doi.split("/")[-1].replace(".", "-")
             if level == "article":
@@ -453,6 +458,8 @@ class CrossRefJournalJob(CrossRefJob):
                 "resource": url
             }
         }
+        if self.journal_issn.strip() == "":
+            del journal["issn"]
         return journal
 
     def get_journal_issue(self):
@@ -1047,6 +1054,7 @@ class OjsJob(genericJob):
         kword_count = 0
         for kword in kwords:
             keywords["kword{0}".format(kword_count)] = {"@name": "keyword", "@value":kword.strip()}
+            kword_count += 1
         return keywords
             
     def get_articles(self):
@@ -1448,11 +1456,11 @@ class OjsJob(genericJob):
             keywords = self.get_keywords(row, "keywords", 'en')
         elif len(row["keywords_de"]) > 0:
             keywords = self.get_keywords(row, "keywords_de", 'de')
-            languages = self.issue_languages.split("||")
 
                             
         if len(keywords) > 0 :
             article[article_id]["publication"]["keywords"] = keywords
+            print(article[article_id]["publication"]["keywords"])
         else:
             del article[article_id]["publication"]["keywords"]
 
@@ -1524,6 +1532,12 @@ class OjsJob(genericJob):
                 del article[article_id]["html_file_de"]
                 del article[article_id]["publication"]["html_galley_de"]                        
 
+        article = self.clean_article(article, article_id)
+
+        return article
+
+    def clean_article(self, article, article_id):
+        #overwrite for specific journals
         return article
 
     def get_sections(self, sections_data):
@@ -1679,6 +1693,20 @@ class OjsIjppJob(OjsJob):
     def get_article_obj(self, url):
         art_obj = scenario.parseIjpp(url)
         return art_obj
+
+
+    def clean_article(self, article, article_id):
+        #overwrite for specific journals
+        article = article
+        if "pdf_file_en" in article[article_id]:
+            del article[article_id]["pdf_file_en"]
+        if "pdf_galley_en" in article[article_id]["publication"]:  
+            del article[article_id]["publication"]["pdf_galley_en"] 
+        if "pdf_file_de" in article[article_id]:
+            del article[article_id]["pdf_file_de"]
+        if "pdf_galley_de" in article[article_id]["publication"]:
+            del article[article_id]["publication"]["pdf_galley_de"] 
+        return article
 
 
 

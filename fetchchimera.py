@@ -52,7 +52,7 @@ if __name__ == '__main__':
         issue_doi,
         '',
         utils.get_contibs(['Richard Scriven'], default_affil),
-        '2013-09-11',
+        datetime.datetime(int(2013), int(9), 11).date(), #       '2013-09-11',
         '2012/2013',
         'http://research.ucc.ie/journals/chimera/home',
         '',
@@ -82,7 +82,8 @@ if __name__ == '__main__':
 
         #Get affiliation. Only one per article
         affil = art.get_affiliation(default_affil)
-        authors = art.get_authors('Breffní Lennon')
+        authors = art.get_authors(['Breffní Lennon'])
+        print(authors)
         keywords = art.get_keywords()
         author_keys = utils.get_contibs(authors, affil)
         if len(author_keys.strip()) == 0:

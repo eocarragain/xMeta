@@ -13,7 +13,12 @@ import fetchutils
 import json
 import os
 import utils
-
+from pdfrw import PdfReader
+from PyPDF2 import PdfFileWriter, PdfFileReader
+#reportlab
+from reportlab.pdfgen.canvas import Canvas
+from reportlab.lib.colors import HexColor
+import time
 
 class parseIssue():
     def __init__(self, issue_url):
@@ -62,7 +67,9 @@ class parseIssue():
             self.get_wayback_api_url(self.issue_url.replace("research.ucc.ie", "publish.ucc.ie"))
             ]
         for wb_url in wb_urls:
+            time.sleep(5)
             wb_api = requests.get(wb_url)
+            print(wb_api)
             wb_api_resp = wb_api.json()
             print(wb_api_resp)
             if wb_api_resp["archived_snapshots"] != {}:
@@ -76,7 +83,7 @@ class parseIssue():
                     print("Warning: failed to load from wayback: {}".format(wb_url))
 
         self.status_code = 500
-        raise Exception("Failed to load html for {0}".format(self.page_url))
+        #raise Exception("Failed to load html for {0}".format(self.page_url))
         return req.text
 
     #todo dry this out. 
@@ -298,7 +305,8 @@ class parseBooleanIssue(parseIssue):
 
     def get_issue_galley_path(self):
         year = self.get_year()
-        issue_galley_path = "http://publish.ucc.ie/boolean/pdf/{}/00/boolean-{}.pdf".format(year, year)
+        #issue_galley_path = "http://publish.ucc.ie/boolean/pdf/{}/00/boolean-{}.pdf".format(year, year)
+        issue_galley_path = "https://journals.ucc.ie/public/site/boolean_covers/boolean_docs/{}-00/boolean-{}.pdf".format(year, year)
         return issue_galley_path     
 
     def get_issue_cover_path(self):
@@ -487,7 +495,14 @@ class parseIjppIssue(parseIssue):
         return ""   
 
     def get_issue_cover_path(self):
-        return "" 
+        url = self.issue_url
+        url_parts = url.split("/")
+        year = url_parts[-2]
+        issue = url_parts[-1]
+        issue_cover_path = "http://journals.ucc.ie/public/site/ijpp_covers/ijpp_cover_{}_{}.png".format(year, issue)
+        #ijpp_cover_2009_01.png
+        return issue_cover_path 
+
 
 class parseScenarioIssue(parseIssue):
     def __init__(self, issue_url):
@@ -1028,11 +1043,27 @@ class parseBoolean(parseArticle):
         #self.journal_abbrev = "boolean"
         #self.pages = self.get_pages()
 
+    def get_doi(self):
+        base = "{}/boolean".format(self.doi_prefix)
+        url_parts = self.page_url.split("/")
+        year = url_parts[-5]
+        if "2014/00/warren/37/en" in self.page_url:
+            art = 38
+        else:
+            art = int(url_parts[-2])
+        doi = "{}.{}.{}".format(base, year, art)
+        return doi
+
     def get_journal_abbrev(self):
         return "boolean"
 
     def has_doi(self):
-        return True
+        skip_dois = ["10.33178/boolean.2010.0", "10.33178/boolean.2014.0", "10.33178/boolean.2015.1"]
+        doi = self.get_doi()
+        if doi in skip_dois:
+            return False
+        else:
+            return True 
 
     def get_issue_obj(self):
         return parseBooleanIssue(self.issue_url)
@@ -1056,7 +1087,7 @@ class parseBoolean(parseArticle):
         # if item has a doi
         if self.has_doi():
             if self.doi not in skip_dois:
-                pdf_content = utils.pdf_insert_doi(pdf_content, self.doi)
+                pdf_content = utils.pdf_insert_doi(pdf_content, self.doi, "https://creativecommons.org/licenses/by-nc-nd/4.0/")
         return pdf_content
 
     def get_cite(self):
@@ -1202,7 +1233,10 @@ class parseBoolean(parseArticle):
         template = BeautifulSoup(html_template, 'html.parser')
         header = self.soup.new_tag("div")
         header["id"] = "header"
-
+        
+        url = self.page_url
+        url_parts = url.split("/")
+        year = url_parts[-5]
 
         title = self.soup.new_tag("h1")
         title_str = self.soup.select("h1.title")[0].get_text()
@@ -1228,7 +1262,7 @@ class parseBoolean(parseArticle):
         citation["id"] = "citation"
         citation.string = citation_str
 
-        cc_statement = "© {}, The Author(s). This work is licensed under a Creative Commons Attribution-NonCommercial 4.0 International License.".format(year)
+        cc_statement = "© {}, The Author(s). This work is licensed under a Creative Commons Attribution-NonCommercial-NoDerivatives 4.0 International License.".format(year)
         cc = self.soup.new_tag("div")
         cc["class"] = "cc_statement"
         cc["id"] = "cc_top"
@@ -1938,12 +1972,19 @@ class parseScenario(parseArticle):
         return template
 
 class parseChimera(parseArticle):
-    def __init__(self, issue_url):
+    def __init__(self, issue_url, pages_json_path = 'chimera_pages.json'):
         parseArticle.__init__(self, issue_url)
         self.title = self.get_title()
         self.doi = self.get_doi()
+        self.pages_json = pages_json_path
         #self.journal_abbrev = "chimera"
         #self.pages = self.get_pages()
+
+    def get_doi(self):
+        base = "{}/chimera".format(self.doi_prefix)
+        art = int(self.page_url.split("/")[-2])
+        doi = "{}.26.{}".format(base, art)
+        return doi
 
     def get_journal_abbrev(self):
         return "chimera"
@@ -1960,31 +2001,19 @@ class parseChimera(parseArticle):
             title = "Book Revews: 1) The Great Animal Orchestra: finding the origins of music in the world’s wild places, by Krause, B.; 2) Cultures of Energy: power, practice, technologies, edited by Strauss, S., Rupp, S. and Loue, T."
         return title
 
-    def get_pdf(self):
-        url_parts = self.page_url.rsplit("/", 5)
-
-        alt_filename = "{0}-{1}-{2}-{3}-{4}.pdf".format(
-            url_parts[-2], #art_id
-            url_parts[-3], #name
-            url_parts[-5], #year
-            url_parts[-4], #issue, ie. 00
-            url_parts[-1]  #lang
-        )
-
-        base_url = "http://ojs.ucc.ie/public/site/chimera_covers"
-        pdf_url = "{0}/{1}".format(base_url, alt_filename)
-
-        print(pdf_url)
-        req = requests.get(pdf_url)
-        if req.status_code == 200:
-            return req.content
-
-        raise Exception("Failed to load pdf for {0}".format(self.page_url))
-
     def get_pages(self):
-        # todo
-        print("WARNING: Failed to find pages for {}".format(self.page_url))
-        return {"start_page": "0", "end_page": "0"}
+        pages = {}
+        pages_dict = self.get_pages_dict()
+        art_pages_id = self.strip_wayback(self.page_url)
+        art_pages_id = art_pages_id.replace(":80", "")
+        if art_pages_id in pages_dict:
+            page_dict = pages_dict[art_pages_id]
+            pages = {"start_page": page_dict["start_page"], "end_page": page_dict["end_page"]}
+        else:
+            print("art_pages_id {} not found in {}".format(art_pages_id, pages_dict))
+
+        print(pages)
+        return pages
 
     def parse_keywords(self, tmp):
         tmp = " ".join(tmp.split()).strip()
@@ -2077,13 +2106,61 @@ class parseChimera(parseArticle):
         if self.status_code != 200:
             return ""
         html_template = """<!DOCTYPE html><html><head>
-                           <link rel="stylesheet" href="../../../../../public/site/chimera_html.css" />
-                           <script src="../../../../../public/site/chimera_html.js" />
+                           <link rel="stylesheet" href="ojs://sitepublic/chimera_html.css" />
+                           <script src="ojs://sitepublic/chimera_html.js" />
+                            <!-- RobustLinks CSS -->
+                            <link rel="stylesheet" type="text/css" href="https://doi.org/10.25776/z58z-r575" />
+                            <!-- RobustLinks Javascript -->
+                            <script type="text/javascript" src="https://doi.org/10.25776/h1fa-7a28"></script>
                            </head><body><span /></body></html>"""
+  
         template = BeautifulSoup(html_template, 'html.parser')
  
 
         content_box = self.soup.select("div#content")[0]
+
+        doi_license = self.soup.new_tag("div")
+        doi_license["id"] = "doi_license"
+
+        url = self.page_url
+        url_parts = url.split("/")
+        year = url_parts[-5]
+
+        doi = self.get_doi()
+        mint_doi = self.has_doi()
+
+
+
+        cc_statement = "© {}, The Author(s). This work is licensed under a Creative Commons Attribution-NonCommercial-NoDerivatives 4.0 International License.".format(year)
+        cc = self.soup.new_tag("div")
+        cc["class"] = "cc_statement"
+        cc["id"] = "cc_top"
+        cc.string = cc_statement
+        doi_license.append(cc)
+        if len(doi) > 0 and mint_doi == True:
+            citation_str = "https://doi.org/{}".format(doi)
+            citation = self.soup.new_tag("div")
+            citation["id"] = "citation"
+            citation.string = citation_str
+            doi_license.append(citation)
+
+        bad_strs = [
+            "[Unknown style: AltHeading]",
+            "[Unknown style: FootnoteText]",
+            "[Unknown style: NoSpacing]",
+            "[Unknown style: Acknowledgments]",
+            "[Unknown style: BlockQuotation]",
+            "[Unknown style: ListParagraph]"
+        ]
+
+        for bad_str in bad_strs:
+            class_name = bad_str.replace("[Unknown style: ", "").replace("]", "") 
+            scbibs = content_box.find_all(lambda tag:tag.name=="p" and bad_str in tag.text)
+            for scbib in scbibs:
+                scbib["class"] = class_name
+                orig_text = scbib.get_text().strip()
+                new_text = orig_text.replace(bad_str, "").strip()
+                scbib.string = new_text
 
         for img in content_box.find_all('img'):
             if "src" not in img.attrs:
@@ -2121,10 +2198,134 @@ class parseChimera(parseArticle):
             mimetype = mimetypes.guess_type(img_url)[0]
             img['src'] = "data:%s;base64,%s" % (mimetype, base64.b64encode(image_data).decode('utf-8'))
 
+            # parent a tag
+            parent = img.parent
+            if parent.name == "a":
+                parent.attrs.clear()
+                parent.name = "span"
+
+        media = []
+
+        for a in content_box.find_all('a'):
+            if "href" not in a.attrs:
+                continue
+            link = a["href"].strip()
+            if link.startswith("#"):
+                continue
+            if "mailto:" in link:
+                continue
+            link_parts = link.split(" ")
+            if len(link_parts) > 1:
+                if link_parts[1].strip().startswith("http"):
+                    link = link_parts[0]
+
+            skip_domains = ["research.ucc.ie", "publish.ucc.ie", "doi.org", "handle.net", "youtube.com"]
+            #if link in media:
+            ab_url = self.get_absolute_url(link)
+            ab_url = self.strip_wayback(ab_url)
+            if any(skip_domain in ab_url for skip_domain in skip_domains):
+                if any(media_link in ab_url for media_link in media):
+                    print("using wayback for local media")
+                else:   
+                    continue
+            date = self.get_pub_date_str().replace("-", "")
+            wb_api_url = self.get_wayback_api_url(ab_url, date)
+            wb_api_resp = requests.get(wb_api_url).json()
+            if wb_api_resp["archived_snapshots"] != {}:
+                wb_url = wb_api_resp["archived_snapshots"]["closest"]["url"]
+                if wb_api_resp["archived_snapshots"]["closest"]["status"] == "200":
+                    a["href"] = wb_url
+                    a["data-originalurl"] = ab_url
+                    a["data-versiondate"] = self.get_date_from_wb_url(wb_url)
+                else:
+                    a["href"] = ab_url
+                    print("WARNING: No wayback snapshot found for {0} from {1}".format(ab_url, self.page_url))
+            else:
+                print("WARNING: No wayback snapshot found for {0} from {1}".format(ab_url, self.page_url))
 
         body = template.find("body")
         body.append(content_box)
+        body.append(doi_license)
         return template
+
+    def get_pdf(self):
+        # Try to load fallback content first (corrected pdfs)
+        url = self.get_fallback_url('pdf')
+        print(url)
+        req = requests.get(url) 
+        if req.status_code == 200:
+            pdf_content = req.content
+        else:
+            raise Exception("Failed to load pdf for {0}".format(self.page_url))
+        
+        skip_dois = []
+        # if item has a doi
+        if self.has_doi():
+            if self.doi not in skip_dois:
+                pdf_content = self.pdf_insert_doi(pdf_content, self.doi, "https://creativecommons.org/licenses/by-nc-nd/4.0/")
+        return pdf_content
+
+
+    def get_doi_canvas(self, doi, width, height, license_url, first_page, current_page):
+        packet = io.BytesIO()
+        header_text = "Chimera, Volume 26 (2013)"
+
+        canvas = Canvas(packet, pagesize=(width,height))
+
+        footer_text = "https://doi.org/{}".format(doi)
+        canvas.saveState()
+        #canvas.setFont("Helvetica-Bold",8)
+        
+        #canvas.setFillColor(HexColor('#990100'))
+        #canvas.setFillColorRGB(255,255,255)
+        #canvas.rect(int(width)-75, 0, 75, 70, stroke=0, fill=1)
+        #canvas.setFillColorRGB(255,255,255)
+
+        #canvas.rect(0, 0, width, 50, stroke=0, fill=1)
+
+        canvas.setFillColorRGB(0,0,0)
+        canvas.setFont("Helvetica",10)
+        canvas.drawCentredString(int(width)-50, 20, str(current_page))
+        canvas.setFont("Helvetica",8)
+        if first_page == True:
+            #canvas.drawImage("Capture.png", int(width)-130,int(height)-56, 90, 46, mask=None)
+            canvas.drawCentredString(int(width)-83, int(height)-30, header_text)
+            canvas.drawCentredString(int(width)/2, 20, footer_text)
+            if len(license_url.strip()) > 0:
+                canvas.drawCentredString(int(width)/2, 10, license_url)
+        canvas.restoreState()
+        canvas.showPage()
+        canvas.save()
+        packet.seek(0)
+        new_pdf = PdfFileReader(packet)
+        return new_pdf
+
+    def pdf_insert_doi(self, req_content, doi, license_url):
+        input_file = io.BytesIO(req_content)
+        existing_pdf = PdfFileReader(input_file)
+        current_page = int(self.get_start_page())
+
+        output = PdfFileWriter()
+        num_of_pages = existing_pdf.getNumPages()
+        for i in range(num_of_pages):
+            if i == 0:
+                first_page = True
+            else:
+                first_page = False
+            page = existing_pdf.getPage(i)
+            mediabox = page.mediaBox
+            doi_canvas = self.get_doi_canvas(doi, mediabox[2],mediabox[3], license_url, first_page, current_page)
+            page.mergePage(doi_canvas.getPage(0))
+
+
+            output.addPage(page)
+            current_page += 1
+            
+
+        pdf_buffer = io.BytesIO()
+        output.write(pdf_buffer)
+        pdf_bytes = pdf_buffer.getbuffer()
+        return pdf_bytes
 
 class parseIjpp(parseArticle):
     def __init__(self, issue_url):
@@ -2136,11 +2337,44 @@ class parseIjpp(parseArticle):
         self.utils = fetchutils.fetchUtils("contribs_ijpp.xlsx")
         #self.journal_abbrev = "ijpp"
 
+    def get_title(self):
+        title = self.get_title_from_toc()
+        prefixes = ["Op-Ed:", "OpEd:", "Op Ed:", "Comment piece:", "Introduction to special issue:", "Editorial:", "Opinion:", "Obituaries:", "Article:"]
+        for prefix in prefixes:
+            if prefix in title:
+                title = title.replace(prefix, "", 1).strip()
+                break
+
+        if title.startswith("Book Review: Review of"):
+            title = title.replace("Book Review: Review of", "Book Review: ")
+
+        if title.startswith("Policy review: Policy review:"):
+            title = title.replace("Policy review: Policy review:", "Policy review:")
+        
+        return title
+        
     def get_journal_abbrev(self):
         return "ijpp"
 
     def has_doi(self):
         return True
+
+    def get_doi(self):
+        base = "{}/ijpp".format(self.doi_prefix)
+        url_parts = self.page_url.split("/")
+        year = url_parts[-5]
+        if year == "2009":
+            vol = "1"
+        elif year == "2010":
+            vol = "2"
+        elif year == "2011":
+            vol = "3"
+        elif year == "2012":
+            vol = "4" 
+        issue = url_parts[-4]
+        art = url_parts[-2]
+        doi = "{}.{}.{}.{}".format(base, vol, str(int(issue)), str(int(art)))
+        return doi
 
     def get_issue_obj(self):
         return parseIjppIssue(self.issue_url)
@@ -2351,13 +2585,19 @@ class parseIjpp(parseArticle):
 
         return citations
 
+
     def get_html(self):
         if self.status_code != 200:
             return ""
         html_template = """<!DOCTYPE html><html><head>
-                           <link rel="stylesheet" href="../../../../../public/site/ijpp_html.css" />
-                           <script src="../../../../../public/site/ijpp_html.js" />
+                           <link rel="stylesheet" href="ojs://sitepublic/ijpp_html.css" />
+                           <script src="ojs://sitepublic/ijpp_html.js" />
+                            <!-- RobustLinks CSS -->
+                            <link rel="stylesheet" type="text/css" href="https://doi.org/10.25776/z58z-r575" />
+                            <!-- RobustLinks Javascript -->
+                            <script type="text/javascript" src="https://doi.org/10.25776/h1fa-7a28"></script>
                            </head><body><span /></body></html>"""
+        
         template = BeautifulSoup(html_template, 'html.parser')
 
         content_box = self.soup.select('div.text')[0]
@@ -2374,16 +2614,16 @@ class parseIjpp(parseArticle):
             toc = toc_els[0]
         
             toc_lis = toc.select("li")
-            if len(toc_lis) > 0:
+            if len(toc_lis) > 1:
                 abstract = content_box.select("div.abstract")
-                affilition = content_box.select("div.affilition")
+                affiliation = content_box.select("div.affiliation")
                 author = content_box.select("h2.Author")
-                alt_tile = content_box.select("h2.Heading1")
+                alt_title = content_box.select("h2.Heading1")
                 title = content_box.select("h1.Title")
                 
                 if len(abstract) > 0:
                     insert_after_tag = abstract[0]
-                elif len(affilition) > 0:
+                elif len(affiliation) > 0:
                     insert_after_tag = affiliation[0]
                 elif len(author) > 0:
                     insert_after_tag = author[0]
@@ -2395,6 +2635,33 @@ class parseIjpp(parseArticle):
                     raise("Error: insertion point not found for table of contents")
                 
                 insert_after_tag.insert_after(toc)
+            else:
+                toc.decompose()
+
+        doi_license = self.soup.new_tag("div")
+        doi_license["id"] = "doi_license"
+
+        url = self.page_url
+        url_parts = url.split("/")
+        year = url_parts[-5]
+
+        doi = self.get_doi()
+        mint_doi = self.has_doi()
+
+
+
+        cc_statement = "© {}, The Author(s). This work is licensed under a Creative Commons Attribution-NonCommercial-NoDerivatives 4.0 International License.".format(year)
+        cc = self.soup.new_tag("div")
+        cc["class"] = "cc_statement"
+        cc["id"] = "cc_top"
+        cc.string = cc_statement
+        doi_license.append(cc)
+        if len(doi) > 0 and mint_doi == True:
+            citation_str = "https://doi.org/{}".format(doi)
+            citation = self.soup.new_tag("div")
+            citation["id"] = "citation"
+            citation.string = citation_str
+            doi_license.append(citation)
 
         for img in content_box.find_all('img'):
             if "src" not in img.attrs:
@@ -2423,7 +2690,136 @@ class parseIjpp(parseArticle):
             mimetype = mimetypes.guess_type(img_url)[0]
             img['src'] = "data:%s;base64,%s" % (mimetype, base64.b64encode(image_data).decode('utf-8'))
 
+            # parent a tag
+            parent = img.parent
+            if parent.name == "a":
+                parent.attrs.clear()
+                parent.name = "span"
+
+        media = []
+
+        for a in content_box.find_all('a'):
+            if "href" not in a.attrs:
+                continue
+            link = a["href"].strip()
+            if link.startswith("#"):
+                continue
+            if "mailto:" in link:
+                continue
+            link_parts = link.split(" ")
+            if len(link_parts) > 1:
+                if link_parts[1].strip().startswith("http"):
+                    link = link_parts[0]
+
+            skip_domains = ["research.ucc.ie", "publish.ucc.ie", "doi.org", "handle.net", "youtube.com"]
+            #if link in media:
+            ab_url = self.get_absolute_url(link)
+            ab_url = self.strip_wayback(ab_url)
+            if any(skip_domain in ab_url for skip_domain in skip_domains):
+                if any(media_link in ab_url for media_link in media):
+                    print("using wayback for local media")
+                else:   
+                    continue
+            date = self.get_pub_date_str().replace("-", "")
+            wb_api_url = self.get_wayback_api_url(ab_url, date)
+            wb_api_resp = requests.get(wb_api_url).json()
+            if wb_api_resp["archived_snapshots"] != {}:
+                wb_url = wb_api_resp["archived_snapshots"]["closest"]["url"]
+                if wb_api_resp["archived_snapshots"]["closest"]["status"] == "200":
+                    a["href"] = wb_url
+                    a["data-originalurl"] = ab_url
+                    a["data-versiondate"] = self.get_date_from_wb_url(wb_url)
+                else:
+                    a["href"] = ab_url
+                    print("WARNING: No wayback snapshot found for {0} from {1}".format(ab_url, self.page_url))
+            else:
+                print("WARNING: No wayback snapshot found for {0} from {1}".format(ab_url, self.page_url))
 
         body = template.find("body")
         body.append(content_box)
+        body.append(doi_license)
         return template
+
+
+    def get_pdf(self):
+        # Try to load fallback content first (corrected pdfs)
+        url = self.get_fallback_url('pdf')
+        print(url)
+        req = requests.get(url) 
+        if req.status_code == 200:
+            pdf_content = req.content
+        else:
+            raise Exception("Failed to load pdf for {0}".format(self.page_url))
+        
+        skip_dois = []
+        # if item has a doi
+        if self.has_doi():
+            if self.doi not in skip_dois:
+                pdf_content = self.pdf_insert_doi(pdf_content, self.doi, "https://creativecommons.org/licenses/by-nc-nd/4.0/")
+        return pdf_content
+
+
+    def get_doi_canvas(self, doi, width, height, license_url, first_page, current_page):
+        packet = io.BytesIO()
+        doi_parts = doi.split(".")
+        vol = doi_parts[-3]
+        issue = doi_parts[-2]
+        year = self.page_url.split("/")[-5]
+        header_text = "Volume {}, Issue {} ({})".format(vol, issue, year)
+
+        canvas = Canvas(packet, pagesize=(width,height))
+
+        footer_text = "https://doi.org/{}".format(doi)
+        canvas.saveState()
+        #canvas.setFont("Helvetica-Bold",8)
+        
+        #canvas.setFillColor(HexColor('#990100'))
+        canvas.setFillColorRGB(255,255,255)
+        canvas.rect(int(width)-75, 0, 75, 70, stroke=0, fill=1)
+        canvas.setFillColorRGB(255,255,255)
+
+        canvas.rect(0, 0, width, 50, stroke=0, fill=1)
+
+        canvas.setFillColorRGB(0,0,0)
+        canvas.setFont("Helvetica",10)
+        canvas.drawCentredString(int(width)-50, 20, str(current_page))
+        canvas.setFont("Helvetica",8)
+        if first_page == True:
+            canvas.drawImage("Capture.png", int(width)-130,int(height)-56, 90, 46, mask=None)
+            canvas.drawCentredString(int(width)-83, int(height)-66, header_text)
+            canvas.drawCentredString(int(width)/2, 20, footer_text)
+            if len(license_url.strip()) > 0:
+                canvas.drawCentredString(int(width)/2, 10, license_url)
+        canvas.restoreState()
+        canvas.showPage()
+        canvas.save()
+        packet.seek(0)
+        new_pdf = PdfFileReader(packet)
+        return new_pdf
+
+    def pdf_insert_doi(self, req_content, doi, license_url):
+        input_file = io.BytesIO(req_content)
+        existing_pdf = PdfFileReader(input_file)
+        current_page = int(self.get_start_page())
+
+        output = PdfFileWriter()
+        num_of_pages = existing_pdf.getNumPages()
+        for i in range(num_of_pages):
+            if i == 0:
+                first_page = True
+            else:
+                first_page = False
+            page = existing_pdf.getPage(i)
+            mediabox = page.mediaBox
+            doi_canvas = self.get_doi_canvas(doi, mediabox[2],mediabox[3], license_url, first_page, current_page)
+            page.mergePage(doi_canvas.getPage(0))
+
+
+            output.addPage(page)
+            current_page += 1
+            
+
+        pdf_buffer = io.BytesIO()
+        output.write(pdf_buffer)
+        pdf_bytes = pdf_buffer.getbuffer()
+        return pdf_bytes

@@ -20,7 +20,7 @@ issue_urls = [
     "http://research.ucc.ie/boolean/2015/00",
 ]
 
-#issue_urls = ["http://research.ucc.ie/boolean/2010/00"]
+issue_urls = ["http://research.ucc.ie/boolean/2014/00"]
 
 
 if __name__ == '__main__':
@@ -76,13 +76,15 @@ if __name__ == '__main__':
 
         article_urls = issue.get_unique_article_urls()
         for article_url in article_urls:
+            print(article_url)
             if "http" not in article_url:
                 article_url = "{0}/{1}".format(url.rsplit("/", 1)[0], article_url)
             url_parts = article_url.split("/")
             art_id = str(int(url_parts[-2]))
-            art_doi = "{0}.{1}".format(issue_doi, art_id)
+            #art_doi = "{0}.{1}".format(issue_doi, art_id)
             language = url_parts[-1]
             art = scenario.parseBoolean(article_url)
+            art_doi = art.get_doi()
             title = art.title
             status_code = art.get_status_code()
 
