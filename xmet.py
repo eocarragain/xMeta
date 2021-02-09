@@ -192,6 +192,7 @@ class genericJob():
         # scenario specific logic
         # this method should be overwritten in sub-class
         if "research.ucc.ie" in url:
+            url = url.replace("research.ucc.ie/journals/", "research.ucc.ie/")
             url_parts = url.split("/")
             journal = url_parts[3]
             stub = doi.split("/")[-1].replace(".", "-")
