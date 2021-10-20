@@ -6,9 +6,9 @@ import argparse
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Convert to Crossref and Dspace metadata')
     parser.add_argument('input_filename', help='the filename to process')
-    parser.add_argument('--journal', help='the journal title being processed, e.g. scenario, boolean, alphaville', default='none')
-    parser.add_argument('--type', help='the type of item being processed, either journal or conference', default='journal')
-    parser.add_argument('--ojs', help='whether to attemp to scrape legacy content and generate OJS import XML, true if yes', default='false')
+    parser.add_argument('--journal', help='the journal title being processed, e.g. scenario, boolean, alphaville. By default this can be left out and is only needed when scraping legacy journals.', default='none')
+    parser.add_argument('--type', help='the type of item being processed, either journal or conference. The default is journal.', default='journal')
+    parser.add_argument('--ojs', help='whether to attemp to scrape legacy content and generate OJS import XML, true if yes. The default is false.', default='false')
     args = vars(parser.parse_args())
     print(args)
     input_file = args['input_filename']
