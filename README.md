@@ -1,9 +1,29 @@
+
 # xMeta
 
 A set of python scripts for converting metadata in a specific spreadsheet format into XML for submission to CrossRef and CSV for loading into DSpace. It also includes code used to scrape legacy journal sites to facilitate migration to OJS using its native XML import format.
 
-## Installation
-TODO
+## Installation (Windows 10 specific)
+### Install Python
+
+ - Open a command prompt
+ - Type ```python -V ``` to make sure python isn't already installed. If it is and is a version other than 3.7 or 3.8 you may need to uninstall or use a virtual environment tool which is capable of managing multiple versions of python (note: installations will currently fail with versions of python higher than 3.8 as they are not supported by numpy which is a dependency)
+ - Assuming python isn't installed, download the latest 3.8.x installer from https://www.python.org/downloads/release/python-3810/. Download the 32 bit installer. Note: Windows may try to install from Windows Store, but avoid this.
+ - Double click the installer & be sure to tick the "Add Python 3.8 to PATH box before clicking "Install Now"
+ - Open a new command prompt and type ```python -V ``` to verify you are using version 3.8.x
+
+### Download script
+
+ - Download & extract the latest version as a zip file from github (or use git to clone it): https://github.com/eocarragain/xMeta/
+ - In the command prompt, navigate into the project folder that you extracted. Type the following commands:
+ -  ``` python -m venv env```
+ -  ``` env\Scripts\activate.bat```
+ -  ``` pip install -r requirements.txt ```
+ - This should install additionally libraries. Note: if the last command fails with an error about needing Visual Studio Build tools, this can be installed from
+https://visualstudio.microsoft.com/visual-cpp-build-tools/. Then try the last command again
+
+You should now be ready to use xMeta.
+
 
 ## Usage
 
