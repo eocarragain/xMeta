@@ -26,7 +26,12 @@ You should now be ready to use xMeta.
 
 
 ## Usage
+**N.B.** If you have followed the install instructions above, you need to make sure you re-enable the python virtual environment before running the scripts as follows:
 
+- Navigate to the project directory and run the following command
+-  ``` env\Scripts\activate.bat```
+- You should see -  ``` (env)``` before your usual command prompt
+- You can now run the commands below
 
 ```
 usage: convert.py [-h] [--journal JOURNAL] [--type TYPE] [--ojs OJS]
